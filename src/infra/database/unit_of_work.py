@@ -1,12 +1,16 @@
-from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker
 from typing import Self, Optional
 
-class UnitOfWork:
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker
+
+from src.application.contracts.unit_of_work import UnitOfWork as UnitOfWorkContract
+
+
+class UnitOfWork(UnitOfWorkContract):
 
     def __init__(self, async_engine: AsyncEngine) -> None:
         self.__session: Optional[AsyncSession] = None
         self._async_engine = async_engine
-    
+
     @property
     def session(self) -> AsyncSession:
         if self.__session:
