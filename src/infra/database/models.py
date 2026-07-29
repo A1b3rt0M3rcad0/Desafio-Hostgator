@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from enum import Enum as PyEnum
 from uuid import UUID, uuid7
 
 from sqlalchemy import (
@@ -22,6 +21,8 @@ from sqlalchemy.orm import (
     mapped_column,
     relationship,
 )
+
+from src.domain.entities import SatisfactionScore, TicketPriority, TicketStatus
 
 Base = declarative_base()
 
@@ -47,29 +48,6 @@ class BaseModel(Base):
         onupdate=func.now(),
         nullable=False,
     )
-
-
-class SatisfactionScore(str, PyEnum):
-    GOOD = "GOOD"
-    BAD = "BAD"
-    UNOFFERED = "UNOFFERED"
-    OFFERED = "OFFERED"
-
-
-class TicketStatus(str, PyEnum):
-    OPEN = "OPEN"
-    CLOSED = "CLOSED"
-    SOLVED = "SOLVED"
-    NEW = "NEW"
-    PENDING = "PENDING"
-    HOLD = "HOLD"
-
-
-class TicketPriority(str, PyEnum):
-    URGENT = "URGENT"
-    HIGH = "HIGH"
-    NORMAL = "NORMAL"
-    LOW = "LOW"
 
 
 class User(BaseModel):
