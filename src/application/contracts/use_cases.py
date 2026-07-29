@@ -21,6 +21,7 @@ from src.application.dtos.list_customers import ListCustomersInput, ListCustomer
 from src.application.dtos.list_satisfaction_ratings import ListSatisfactionRatingsInput, ListSatisfactionRatingsOutput
 from src.application.dtos.list_tags import ListTagsInput, ListTagsOutput
 from src.application.dtos.list_tickets import ListTicketsInput, ListTicketsOutput
+from src.application.dtos.list_tickets_by_tags import ListTicketsByTagsInput, ListTicketsByTagsOutput
 from src.application.dtos.list_users import ListUsersInput, ListUsersOutput
 from src.application.dtos.update_customer import UpdateCustomerInput, UpdateCustomerOutput
 from src.application.dtos.update_satisfaction_rating import UpdateSatisfactionRatingInput, UpdateSatisfactionRatingOutput
@@ -162,3 +163,8 @@ class AddTicketTag(ABC):
 class DeleteTicketTag(ABC):
     @abstractmethod
     async def execute(self, input_dto: DeleteTicketTagInput) -> DeleteTicketTagOutput: ...
+
+
+class ListTicketsByTags(ABC):
+    @abstractmethod
+    async def execute(self, input_dto: ListTicketsByTagsInput) -> ListTicketsByTagsOutput: ...

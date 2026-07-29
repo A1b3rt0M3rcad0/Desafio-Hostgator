@@ -174,6 +174,36 @@ class SqlAlchemyTicketRepository(TicketRepository):
             has_previous=cursor is not None,
         )
 
+    async def page_by_tag_ids(
+        self,
+        tag_ids: list[UUID],
+        cursor: str | None = None,
+        page_size: int = 20,
+    ) -> CursorPage[TicketEntity]:
+        stmt = (
+            select(Ticket)
+            .join(TicketTag, Ticket.id == TicketTag.ticket_id)
+            .where(TicketTag.tag_id.in_(tag_ids))
+            .distinct()
+            .order_by(Ticket.id)
+            .limit(page_size + 1)
+        )
+        if cursor:
+            cursor_id = UUID(base64.urlsafe_b64decode(cursor.encode()).decode())
+            stmt = stmt.where(Ticket.id > cursor_id)
+        result = await self._session.execute(stmt)
+        rows = list(result.scalars().all())
+        entities = [TicketEntity.model_validate(r) for r in rows[:page_size]]
+        has_next = len(rows) > page_size
+        next_cursor = base64.urlsafe_b64encode(str(entities[-1].id).encode()).decode() if has_next and entities else None
+        return CursorPage(
+            items=entities,
+            next_cursor=next_cursor,
+            previous_cursor=None,
+            has_next=has_next,
+            has_previous=cursor is not None,
+        )
+
 
 class SqlAlchemySatisfactionRatingRepository(SatisfactionRatingRepository):
 
@@ -280,6 +310,17 @@ class SqlAlchemyTicketTagRepository(TicketTagRepository):
         orm = TicketTag(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
         self._session.add(orm)
         await self._session.flush()
+
+    async def delete_by_ticket_and_tag(self, ticket_id: UUID, tag_id: UUID) -> None:
+        stmt = select(TicketTag).where(
+            TicketTag.ticket_id == ticket_id,
+            TicketTag.tag_id == tag_id,
+        )
+        result = await self._session.execute(stmt)
+        orm = result.scalar_one_or_none()
+        if orm:
+            await self._session.delete(orm)
+            await self._session.flush()
 
     async def get(self, entity_id: UUID) -> TicketTagEntity | None:
         orm = await self._session.get(TicketTag, entity_id)
