@@ -1,0 +1,319 @@
+from __future__ import annotations
+
+from datetime import datetime
+from enum import Enum as PyEnum
+from uuid import UUID, uuid7
+
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    Enum as SQLAlchemyEnum,
+    ForeignKey,
+    LargeBinary,
+    String,
+    Text,
+    UniqueConstraint,
+    Uuid as SQLAlchemyUUID,
+    func,
+)
+from sqlalchemy.orm import (
+    Mapped,
+    declarative_base,
+    mapped_column,
+    relationship,
+)
+
+Base = declarative_base()
+
+
+class BaseModel(Base):
+    __abstract__ = True
+
+    id: Mapped[UUID] = mapped_column(
+        SQLAlchemyUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid7,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class SatisfactionScore(str, PyEnum):
+    GOOD = "GOOD"
+    BAD = "BAD"
+    UNOFFERED = "UNOFFERED"
+    OFFERED = "OFFERED"
+
+
+class TicketStatus(str, PyEnum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    SOLVED = "SOLVED"
+    NEW = "NEW"
+    PENDING = "PENDING"
+    HOLD = "HOLD"
+
+
+class TicketPriority(str, PyEnum):
+    URGENT = "URGENT"
+    HIGH = "HIGH"
+    NORMAL = "NORMAL"
+    LOW = "LOW"
+
+
+class User(BaseModel):
+    __tablename__ = "users"
+
+    email: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    password_hash: Mapped[bytes] = mapped_column(
+        LargeBinary(255),
+        nullable=False,
+    )
+
+    refresh_token: Mapped[str] = mapped_column(
+        String(1024),
+        nullable=False,
+    )
+
+
+class Customer(BaseModel):
+    __tablename__ = "customers"
+
+    external_requester_id: Mapped[int] = mapped_column(
+        BigInteger,
+        unique=True,
+        nullable=False,
+    )
+
+    requester_name: Mapped[str] = mapped_column(
+        String(255),
+        nullable=False,
+    )
+
+    requester_email: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        nullable=False,
+    )
+
+    tickets: Mapped[list[Ticket]] = relationship(
+        back_populates="customer",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+
+
+class Ticket(BaseModel):
+    __tablename__ = "tickets"
+
+    customer_id: Mapped[UUID] = mapped_column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        index=True,
+        nullable=False,
+    )
+
+    external_ticket_id: Mapped[int] = mapped_column(
+        BigInteger,
+        unique=True,
+        nullable=False,
+    )
+
+    subject: Mapped[str] = mapped_column(
+        String(500),
+        nullable=False,
+    )
+
+    description: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+    )
+
+    first_response_at: Mapped[datetime | None] = mapped_column(
+        DateTime(),
+        nullable=True,
+    )
+
+    status: Mapped[TicketStatus] = mapped_column(
+        SQLAlchemyEnum(
+            TicketStatus,
+            name="ticket_status",
+            native_enum=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+
+    priority: Mapped[TicketPriority] = mapped_column(
+        SQLAlchemyEnum(
+            TicketPriority,
+            name="ticket_priority",
+            native_enum=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+
+    assignee_external_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        nullable=True,
+    )
+
+    assignee_name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    source_created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        nullable=False,
+    )
+
+    source_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(),
+        nullable=False,
+    )
+
+    customer: Mapped[Customer] = relationship(
+        back_populates="tickets",
+        lazy="joined",
+    )
+
+    satisfaction_rating: Mapped[SatisfactionRating | None] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        single_parent=True,
+        uselist=False,
+        lazy="selectin",
+        passive_deletes=True,
+    )
+
+    tag_links: Mapped[list[TicketTag]] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+
+    tags: Mapped[list[Tag]] = relationship(
+        secondary="ticket_tags",
+        viewonly=True,
+        lazy="selectin",
+    )
+
+
+class SatisfactionRating(BaseModel):
+    __tablename__ = "satisfaction_ratings"
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    score: Mapped[SatisfactionScore] = mapped_column(
+        SQLAlchemyEnum(
+            SatisfactionScore,
+            name="satisfaction_score",
+            native_enum=True,
+            validate_strings=True,
+        ),
+        nullable=False,
+    )
+
+    offered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(),
+        nullable=True,
+    )
+
+    rated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(),
+        nullable=True,
+    )
+
+    comment: Mapped[str] = mapped_column(
+        String(1000),
+        nullable=False,
+        default="",
+    )
+
+    ticket: Mapped[Ticket] = relationship(
+        back_populates="satisfaction_rating",
+        lazy="joined",
+    )
+
+
+class Tag(BaseModel):
+    __tablename__ = "tags"
+
+    name: Mapped[str] = mapped_column(
+        String(255),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+
+    ticket_links: Mapped[list[TicketTag]] = relationship(
+        back_populates="tag",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        passive_deletes=True,
+    )
+
+    tickets: Mapped[list[Ticket]] = relationship(
+        secondary="ticket_tags",
+        viewonly=True,
+        lazy="selectin",
+    )
+
+
+class TicketTag(BaseModel):
+    __tablename__ = "ticket_tags"
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id",
+            "tag_id",
+            name="uq_ticket_tags_ticket_id_tag_id",
+        ),
+    )
+
+    ticket_id: Mapped[UUID] = mapped_column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("tickets.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    tag_id: Mapped[UUID] = mapped_column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("tags.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    ticket: Mapped[Ticket] = relationship(
+        back_populates="tag_links",
+        lazy="joined",
+    )
+
+    tag: Mapped[Tag] = relationship(
+        back_populates="ticket_links",
+        lazy="joined",
+    )
