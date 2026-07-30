@@ -12,6 +12,7 @@ from src.application.contracts.repositories import (
     TicketTagRepository,
     UserRepository,
 )
+from src.application.dtos.cursor_page import CursorPage
 from src.domain.entities import (
     CustomerEntity,
     SatisfactionRatingEntity,
@@ -20,7 +21,6 @@ from src.domain.entities import (
     TicketTagEntity,
     UserEntity,
 )
-from src.domain.objects import CursorPage
 from src.infra.database.models import (
     Customer,
     SatisfactionRating,
