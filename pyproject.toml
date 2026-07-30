@@ -8,4 +8,7 @@ dependencies = [
     "alembic>=1.18.5",
     "pydantic>=2.13.4",
     "sqlalchemy>=2.0.51",
+    "pymysql>=1.1.1",
+    "aiomysql>=0.2.0",
+    "python-dotenv>=1.0.1",
 ]
