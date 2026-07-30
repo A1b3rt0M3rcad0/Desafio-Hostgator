@@ -12,7 +12,6 @@ from src.application.contracts.repositories import (
     TicketTagRepository,
     UserRepository,
 )
-from src.application.contracts.unit_of_work import UnitOfWork
 from src.domain.entities import (
     CustomerEntity,
     SatisfactionRatingEntity,
@@ -30,6 +29,7 @@ from src.infra.database.models import (
     TicketTag,
     User,
 )
+from src.infra.database.unit_of_work import UnitOfWork
 
 
 class _SqlAlchemyRepository:
