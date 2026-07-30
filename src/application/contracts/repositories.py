@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import TypeVar, Generic
-from src.domain.objects import CursorPage
+from src.application.dtos.cursor_page import CursorPage
 from src.domain.entities import UserEntity, CustomerEntity, TicketEntity, SatisfactionRatingEntity, TagEntity, TicketTagEntity
 from uuid import UUID
 
