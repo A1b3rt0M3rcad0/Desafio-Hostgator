@@ -12,6 +12,7 @@ from src.application.contracts.repositories import (
     TicketTagRepository,
     UserRepository,
 )
+from src.application.contracts.unit_of_work import UnitOfWork
 from src.domain.entities import (
     CustomerEntity,
     SatisfactionRatingEntity,
@@ -31,10 +32,16 @@ from src.infra.database.models import (
 )
 
 
-class SqlAlchemyUserRepository(UserRepository):
+class _SqlAlchemyRepository:
+    def __init__(self, unit_of_work: UnitOfWork) -> None:
+        self._unit_of_work = unit_of_work
 
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+    @property
+    def _session(self) -> AsyncSession:
+        return self._unit_of_work.session
+
+
+class SqlAlchemyUserRepository(_SqlAlchemyRepository, UserRepository):
 
     async def add(self, entity: UserEntity) -> None:
         orm = User(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
@@ -79,10 +86,7 @@ class SqlAlchemyUserRepository(UserRepository):
         )
 
 
-class SqlAlchemyCustomerRepository(CustomerRepository):
-
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+class SqlAlchemyCustomerRepository(_SqlAlchemyRepository, CustomerRepository):
 
     async def add(self, entity: CustomerEntity) -> None:
         orm = Customer(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
@@ -127,10 +131,7 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
         )
 
 
-class SqlAlchemyTicketRepository(TicketRepository):
-
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
 
     async def add(self, entity: TicketEntity) -> None:
         orm = Ticket(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
@@ -205,10 +206,10 @@ class SqlAlchemyTicketRepository(TicketRepository):
         )
 
 
-class SqlAlchemySatisfactionRatingRepository(SatisfactionRatingRepository):
-
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+class SqlAlchemySatisfactionRatingRepository(
+    _SqlAlchemyRepository,
+    SatisfactionRatingRepository,
+):
 
     async def add(self, entity: SatisfactionRatingEntity) -> None:
         orm = SatisfactionRating(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
@@ -253,10 +254,7 @@ class SqlAlchemySatisfactionRatingRepository(SatisfactionRatingRepository):
         )
 
 
-class SqlAlchemyTagRepository(TagRepository):
-
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+class SqlAlchemyTagRepository(_SqlAlchemyRepository, TagRepository):
 
     async def add(self, entity: TagEntity) -> None:
         orm = Tag(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
@@ -301,10 +299,7 @@ class SqlAlchemyTagRepository(TagRepository):
         )
 
 
-class SqlAlchemyTicketTagRepository(TicketTagRepository):
-
-    def __init__(self, session: AsyncSession) -> None:
-        self._session = session
+class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):
 
     async def add(self, entity: TicketTagEntity) -> None:
         orm = TicketTag(**entity.model_dump(exclude={'id', 'created_at', 'updated_at'}))
