@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import asyncio
+import os
+
+import pytest
+from sqlalchemy.ext.asyncio import create_async_engine
+
+from src.application.dtos.analytics import AnalyticsFilters
+from src.application.dtos.imports import SyncTicketsInput
+from src.infra.database.dashboard_workspace import DashboardWorkspaceQueryRepository
+from src.infra.database.imports import SqlAlchemyTicketImportRepository
+from src.infra.database.models import Base
+from src.infra.database.unit_of_work import UnitOfWork
+
+
+def _ticket(ticket_id: int, created_at: str, status: str, email: str, tag: str) -> dict[str, object]:
+    return {
+        "ticket_id": ticket_id,
+        "subject": f"Ticket {ticket_id}",
+        "description": "Cenário de comparação temporal do dashboard.",
+        "status": status,
+        "priority": "high",
+        "requester_id": ticket_id,
+        "requester_name": f"Cliente {ticket_id}",
+        "requester_email": email,
+        "assignee_id": 9103,
+        "assignee_name": "Marina Alves (Domínios e DNS)",
+        "created_at": created_at,
+        "updated_at": created_at,
+        "first_response_at": created_at,
+        "tags": [tag],
+        "satisfaction_rating": {
+            "score": "good",
+            "offered_at": created_at,
+            "rated_at": created_at,
+            "comment": "Resolvido",
+        },
+    }
+
+
+@pytest.mark.skipif(
+    not os.getenv("MYSQL_URL_CONNECTION_API", "").startswith("mysql+aiomysql://"),
+    reason="requires a MySQL 8 test database",
+)
+def test_dashboard_workspace_returns_previous_period_and_complete_filter_options() -> None:
+    asyncio.run(_run_scenario())
+
+
+async def _run_scenario() -> None:
+    engine = create_async_engine(os.environ["MYSQL_URL_CONNECTION_API"], pool_pre_ping=True)
+    try:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all)
+            await connection.run_sync(Base.metadata.create_all)
+
+        records = SyncTicketsInput(
+            tickets=[
+                _ticket(200001, "2026-07-09T12:00:00Z", "solved", "anterior@example.com", "dns"),
+                _ticket(200002, "2026-07-10T12:00:00Z", "open", "atual-a@example.com", "dns"),
+                _ticket(200003, "2026-07-11T12:00:00Z", "solved", "atual-b@example.com", "ssl"),
+            ]
+        ).tickets
+
+        async with UnitOfWork(engine) as unit_of_work:
+            await SqlAlchemyTicketImportRepository(unit_of_work).sync(records)
+
+        filters = AnalyticsFilters(
+            from_at="2026-07-10T00:00:00Z",
+            to_at="2026-07-12T00:00:00Z",
+        )
+        async with UnitOfWork(engine) as unit_of_work:
+            dashboard = await DashboardWorkspaceQueryRepository(unit_of_work).get_dashboard(
+                filters,
+                top_topics_limit=8,
+                timeline_limit=90,
+            )
+
+        volume = dashboard["metrics"]["ticket_volume"]
+        assert volume["value"] == 2
+        assert volume["previous_value"] == 1
+        assert volume["change_percent"] == pytest.approx(100.0)
+        assert dashboard["scope"]["is_comparable"] is True
+        assert dashboard["scope"]["previous_from_at"] is not None
+
+        options = dashboard["filter_options"]
+        assert {item["name"] for item in options["tags"]} == {"dns", "ssl"}
+        assert {item["requester_email"] for item in options["customers"]} == {
+            "anterior@example.com",
+            "atual-a@example.com",
+            "atual-b@example.com",
+        }
+        assert options["assignees"] == [
+            {"external_id": 9103, "name": "Marina Alves (Domínios e DNS)"}
+        ]
+        assert dashboard["summary"]["top_driver"]["label"] == "dns"
+    finally:
+        async with engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
