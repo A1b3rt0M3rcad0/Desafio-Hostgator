@@ -4,7 +4,11 @@ from src.application.use_cases.get_user import GetUser
 from src.application.use_cases.list_users import ListUsers
 from src.application.use_cases.update_user import UpdateUser
 from src.bootstrap.composers.database import DATABASE_ENGINE
-from src.infra.database.repositories import SqlAlchemyUserRepository
+from src.bootstrap.security import PASSWORD_HASHER
+from src.infra.database.repositories import (
+    SqlAlchemyAuthSessionRepository,
+    SqlAlchemyUserRepository,
+)
 from src.infra.database.transactional_handler import TransactionalHandler
 from src.infra.database.unit_of_work import UnitOfWork
 from src.presentation.http.controllers.add_user_controller import AddUserController
@@ -17,7 +21,7 @@ from src.presentation.http.controllers.update_user_controller import UpdateUserC
 def add_user_composer() -> TransactionalHandler:
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyUserRepository(unit_of_work)
-    use_case = AddUser(repository)
+    use_case = AddUser(repository, PASSWORD_HASHER)
     controller = AddUserController(use_case)
     return TransactionalHandler(unit_of_work, controller.handle)
 
@@ -33,7 +37,8 @@ def get_user_composer() -> TransactionalHandler:
 def update_user_composer() -> TransactionalHandler:
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyUserRepository(unit_of_work)
-    use_case = UpdateUser(repository)
+    session_repository = SqlAlchemyAuthSessionRepository(unit_of_work)
+    use_case = UpdateUser(repository, PASSWORD_HASHER, session_repository)
     controller = UpdateUserController(use_case)
     return TransactionalHandler(unit_of_work, controller.handle)
 
