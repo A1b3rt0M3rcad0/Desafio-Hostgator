@@ -1,14 +1,8 @@
 from abc import ABC, abstractmethod
 from typing import Self
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
 
 class UnitOfWork(ABC):
-
-    @property
-    @abstractmethod
-    def session(self) -> AsyncSession: ...
 
     @abstractmethod
     async def commit(self) -> None: ...

@@ -2,8 +2,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from src.application.dtos.cursor_page import CursorPage
 from src.domain.entities import TicketEntity
-from src.domain.objects import CursorPage
 
 
 class ListTicketsByTagsInput(BaseModel):

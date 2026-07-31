@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
+from src.application.dtos.cursor_page import CursorPage
 from src.domain.entities import TagEntity
-from src.domain.objects import CursorPage
 
 
 class ListTagsInput(BaseModel):

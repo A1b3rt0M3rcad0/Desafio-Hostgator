@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
+from src.application.dtos.cursor_page import CursorPage
 from src.domain.entities import SatisfactionRatingEntity
-from src.domain.objects import CursorPage
 
 
 class ListSatisfactionRatingsInput(BaseModel):
