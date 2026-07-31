@@ -1,0 +1,4 @@
+# Keep Linux container scripts executable across Windows checkouts.
+*.sh text eol=lf
+Dockerfile* text eol=lf
+*.template text eol=lf
