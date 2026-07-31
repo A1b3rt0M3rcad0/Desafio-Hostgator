@@ -10,7 +10,7 @@ from src.application.use_cases.analytics import (
     PreviewRawReport,
 )
 from src.bootstrap.composers.database import DATABASE_ENGINE
-from src.infra.database.dashboard_analytics import DashboardAnalyticsQueryRepository
+from src.infra.database.dashboard_workspace import DashboardWorkspaceQueryRepository
 from src.infra.database.transactional_handler import TransactionalHandler
 from src.infra.database.unit_of_work import UnitOfWork
 from src.infra.reports.writers import DefaultReportWriterFactory
@@ -24,9 +24,9 @@ from src.presentation.http.controllers.analytics import (
 )
 
 
-def _repository() -> tuple[UnitOfWork, DashboardAnalyticsQueryRepository]:
+def _repository() -> tuple[UnitOfWork, DashboardWorkspaceQueryRepository]:
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
-    return unit_of_work, DashboardAnalyticsQueryRepository(unit_of_work)
+    return unit_of_work, DashboardWorkspaceQueryRepository(unit_of_work)
 
 
 def get_dashboard_overview_composer() -> TransactionalHandler:
