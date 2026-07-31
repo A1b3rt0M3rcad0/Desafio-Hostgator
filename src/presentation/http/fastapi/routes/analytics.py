@@ -12,6 +12,7 @@ from src.bootstrap.composers.analytics import (
     list_customer_metrics_composer,
     preview_raw_report_composer,
 )
+from src.bootstrap.composers.imports import sync_tickets_from_mock_composer
 from src.presentation.http.fastapi.adapters import adapt_request, adapt_response
 
 
@@ -60,4 +61,13 @@ async def export_metrics_report(
     body: dict[str, Any] = Body(...),
 ) -> FastAPIResponse:
     response = await export_metrics_report_composer()(adapt_request(request, body))
+    return adapt_response(response)
+
+
+@router.post("/imports/tickets/sync")
+async def sync_tickets_from_mock(
+    request: FastAPIRequest,
+    body: Any = Body(...),
+) -> FastAPIResponse:
+    response = await sync_tickets_from_mock_composer()(adapt_request(request, body))
     return adapt_response(response)
