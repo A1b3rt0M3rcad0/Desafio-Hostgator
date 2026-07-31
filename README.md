@@ -14,7 +14,6 @@ docker compose up --build
 Para iniciar em segundo plano e aguardar todos os healthchecks:
 
 ```bash
-cp .env.example .env
 docker compose up --build -d --wait --wait-timeout 120
 ```
 
