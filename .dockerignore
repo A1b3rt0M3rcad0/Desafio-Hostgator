@@ -5,6 +5,5 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .env
-.db.env
 .git
 .gitignore
