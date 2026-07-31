@@ -1,7 +1,9 @@
 # Docker Compose automatically loads variables from .env in this directory.
 # First local test:
 #   cp .env.example .env
-#   docker compose up --build --wait --wait-timeout 120
+#   docker compose up --build -d
+# Optional strict startup validation:
+#   docker compose up --build -d --wait --wait-timeout 120
 services:
   db:
     image: mysql:8.0
