@@ -1,5 +1,5 @@
 const config = window.__WEB_CONFIG__ || {};
-const API_BASE_PATH = String(config.API_BASE_PATH || '/api').replace(/\/$/, '');
+const API_URL = String(config.API_URL || '/api').replace(/\/$/, '');
 const REQUEST_TIMEOUT_MS = Number(config.REQUEST_TIMEOUT_MS || 15000);
 const CSRF_COOKIE_NAME = config.CSRF_COOKIE_NAME || 'csrf_token';
 const CSRF_HEADER_NAME = config.CSRF_HEADER_NAME || 'X-CSRF-Token';
@@ -23,13 +23,17 @@ function readCookie(name) {
 }
 
 function buildUrl(path, query) {
-  const url = new URL(`${API_BASE_PATH}${path}`, window.location.origin);
+  const normalizedBase = `${API_URL}/`;
+  const apiRoot = new URL(normalizedBase, window.location.origin);
+  const url = new URL(String(path || '').replace(/^\//, ''), apiRoot);
+
   Object.entries(query || {}).forEach(([key, value]) => {
     if (value === undefined || value === null || value === '') return;
     if (Array.isArray(value)) value.forEach((item) => url.searchParams.append(key, item));
     else url.searchParams.set(key, String(value));
   });
-  return `${url.pathname}${url.search}`;
+
+  return url.toString();
 }
 
 async function parseResponse(response) {

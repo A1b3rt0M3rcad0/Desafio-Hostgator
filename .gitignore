@@ -8,7 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
-.env
+
+# Local environment overrides. The versioned .env and .env.web contain mock defaults.
+.env.local
+.env.*.local
 
 # Frontend
 web/node_modules/

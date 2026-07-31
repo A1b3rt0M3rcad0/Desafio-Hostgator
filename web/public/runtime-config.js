@@ -1,6 +1,8 @@
 window.__WEB_CONFIG__ = {
   APP_NAME: 'HostGator Analytics',
-  API_BASE_PATH: '/api',
+  APP_ENV: 'development',
+  PUBLIC_URL: 'http://localhost:5173',
+  API_URL: '/api',
   REQUEST_TIMEOUT_MS: 15000,
   REGISTRATION_ENABLED: true,
   CSRF_COOKIE_NAME: 'csrf_token',
