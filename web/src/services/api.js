@@ -61,10 +61,11 @@ export async function request(path, options = {}) {
     signal,
     responseType = 'json',
     withHeaders = false,
+    timeoutMs = REQUEST_TIMEOUT_MS,
   } = options;
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
 
   const normalizedMethod = method.toUpperCase();
@@ -131,6 +132,7 @@ async function download(path, body, fallback) {
     body,
     responseType: 'blob',
     withHeaders: true,
+    timeoutMs: 120000,
   });
   const url = URL.createObjectURL(payload);
   const anchor = document.createElement('a');
@@ -171,4 +173,5 @@ export const api = {
   previewRawReport: (body) => request('/reports/raw/preview', { method: 'POST', body }),
   exportRawReport: (body) => download('/reports/raw/export', body, `tickets-raw.${body.format || 'csv'}`),
   exportMetricsReport: (body) => download('/reports/metrics/export', body, `metricas.${body.format || 'csv'}`),
+  syncTickets: (tickets) => request('/imports/tickets/sync', { method: 'POST', body: { tickets }, timeoutMs: 120000 }),
 };
