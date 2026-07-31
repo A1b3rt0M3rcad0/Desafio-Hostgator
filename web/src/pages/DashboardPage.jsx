@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api.js';
 import { useResource } from '../hooks/useResource.js';
 import { ErrorState, Spinner } from '../components/UI.jsx';
@@ -25,6 +25,29 @@ function localDateTime(value) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 
+function readInitialScope() {
+  const params = new URLSearchParams(window.location.search);
+  const requestedPeriod = params.get('period');
+  const period = PERIODS.some((item) => item.value === requestedPeriod) ? requestedPeriod : '30d';
+  const now = new Date();
+  const start = new Date(now);
+  start.setDate(start.getDate() - 30);
+  return {
+    period,
+    customRange: {
+      from_at: params.get('from_at') ? localDateTime(params.get('from_at')) : localDateTime(start),
+      to_at: params.get('to_at') ? localDateTime(params.get('to_at')) : localDateTime(now),
+    },
+    filters: {
+      statuses: params.getAll('statuses').filter(Boolean),
+      priorities: params.getAll('priorities').filter(Boolean),
+      tag_names: params.getAll('tag_names').filter(Boolean),
+      requester_emails: params.getAll('requester_emails').filter(Boolean),
+      assignee_external_ids: params.getAll('assignee_external_ids').map(Number).filter(Number.isFinite),
+    },
+  };
+}
+
 function periodRange(period, anchor, customRange) {
   if (period === 'custom') {
     return {
@@ -41,7 +64,7 @@ function periodRange(period, anchor, customRange) {
 
 function MultiSelect({ label, values, options, onChange, searchable = false }) {
   const [search, setSearch] = useState('');
-  const visible = options.filter((option) => !searchable || option.label.toLowerCase().includes(search.toLowerCase()));
+  const visible = options.filter((option) => !searchable || `${option.label} ${option.detail || ''}`.toLowerCase().includes(search.toLowerCase()));
   const summary = values.length ? `${label}: ${values.length}` : label;
 
   function toggle(value) {
@@ -68,12 +91,13 @@ function MultiSelect({ label, values, options, onChange, searchable = false }) {
   );
 }
 
-function ActiveFilters({ filters, onRemove, onClear }) {
+function ActiveFilters({ filters, assigneeLabels, onRemove, onClear }) {
   const chips = [
     ...filters.statuses.map((value) => ({ type: 'statuses', value, label: `Status: ${humanize(value)}` })),
     ...filters.priorities.map((value) => ({ type: 'priorities', value, label: `Prioridade: ${humanize(value)}` })),
     ...filters.tag_names.map((value) => ({ type: 'tag_names', value, label: `Tag: ${value}` })),
     ...filters.requester_emails.map((value) => ({ type: 'requester_emails', value, label: value })),
+    ...filters.assignee_external_ids.map((value) => ({ type: 'assignee_external_ids', value, label: `Responsável: ${assigneeLabels[value] || value}` })),
   ];
   if (!chips.length) return null;
   return (
@@ -89,7 +113,7 @@ function ActiveFilters({ filters, onRemove, onClear }) {
   );
 }
 
-function comparisonLabel(metric, key, { points = false, lowerIsBetter = false } = {}) {
+function comparisonLabel(metric, { points = false, lowerIsBetter = false } = {}) {
   const change = points ? metric?.change_points : metric?.change_percent;
   if (change === null || change === undefined) return { label: 'Sem período anterior comparável', tone: 'neutral' };
   if (Math.abs(change) < 0.05) return { label: 'Estável em relação ao período anterior', tone: 'neutral' };
@@ -158,39 +182,35 @@ function TopicsTable({ topics }) {
 }
 
 export function DashboardPage() {
-  const [period, setPeriod] = useState('30d');
+  const initial = useMemo(readInitialScope, []);
+  const [period, setPeriod] = useState(initial.period);
   const [anchor, setAnchor] = useState(() => new Date());
-  const [customRange, setCustomRange] = useState(() => {
-    const now = new Date();
-    const start = new Date(now);
-    start.setDate(start.getDate() - 30);
-    return { from_at: localDateTime(start), to_at: localDateTime(now) };
-  });
-  const [filters, setFilters] = useState({ statuses: [], priorities: [], tag_names: [], requester_emails: [] });
+  const [customRange, setCustomRange] = useState(initial.customRange);
+  const [filters, setFilters] = useState(initial.filters);
   const [trendMode, setTrendMode] = useState('opened');
 
+  const range = useMemo(() => periodRange(period, anchor, customRange), [anchor, customRange, period]);
   const query = useMemo(() => ({
-    ...periodRange(period, anchor, customRange),
+    ...range,
     ...filters,
     top_topics_limit: 8,
     timeline_limit: 90,
-  }), [anchor, customRange, filters, period]);
+  }), [filters, range]);
+  const reportFilters = useMemo(() => ({ ...range, ...filters }), [filters, range]);
 
   const resource = useResource(() => api.getDashboard(query), [JSON.stringify(query)]);
-  const optionsResource = useResource(async () => {
-    const [tags, customers] = await Promise.all([
-      api.listTags({ page_size: 100 }),
-      api.listCustomers({ page_size: 100 }),
-    ]);
-    return { tags: tags?.items || [], customers: customers?.items || [] };
-  }, []);
 
-  const tagOptions = (optionsResource.data?.tags || []).map((tag) => ({ value: tag.name, label: tag.name }));
-  const customerOptions = (optionsResource.data?.customers || []).map((customer) => ({
-    value: customer.requester_email,
-    label: customer.requester_name,
-    detail: customer.requester_email,
-  }));
+  useEffect(() => {
+    const params = new URLSearchParams();
+    params.set('period', period);
+    if (period === 'custom') {
+      if (range.from_at) params.set('from_at', range.from_at);
+      if (range.to_at) params.set('to_at', range.to_at);
+    }
+    Object.entries(filters).forEach(([key, values]) => values.forEach((value) => params.append(key, String(value))));
+    const search = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${search ? `?${search}` : ''}`);
+  }, [filters, period, range]);
 
   function updateFilter(name, values) {
     setFilters((current) => ({ ...current, [name]: values }));
@@ -201,7 +221,7 @@ export function DashboardPage() {
   }
 
   function clearFilters() {
-    setFilters({ statuses: [], priorities: [], tag_names: [], requester_emails: [] });
+    setFilters({ statuses: [], priorities: [], tag_names: [], requester_emails: [], assignee_external_ids: [] });
   }
 
   if (resource.loading) return <Spinner label="Construindo visão analítica da operação" />;
@@ -210,6 +230,7 @@ export function DashboardPage() {
   const data = resource.data || {};
   const metrics = data.metrics || {};
   const charts = data.charts || {};
+  const filterOptions = data.filter_options || {};
   const volume = metrics.ticket_volume || {};
   const resolution = metrics.resolution_rate || {};
   const response = metrics.average_first_response || {};
@@ -218,22 +239,27 @@ export function DashboardPage() {
   const behavior = data.customer_behavior || {};
   const total = Number(volume.value || 0);
 
+  const tagOptions = (filterOptions.tags || []).map((tag) => ({ value: tag.name, label: tag.name }));
+  const customerOptions = (filterOptions.customers || []).map((customer) => ({ value: customer.requester_email, label: customer.requester_name, detail: customer.requester_email }));
+  const assigneeOptions = (filterOptions.assignees || []).map((assignee) => ({ value: assignee.external_id, label: assignee.name, detail: `ID ${assignee.external_id}` }));
+  const assigneeLabels = Object.fromEntries(assigneeOptions.map((option) => [option.value, option.label]));
+
   const cards = [
     {
       label: 'Volume de tickets', value: formatNumber(volume.value), detail: 'Tickets abertos no período',
-      comparison: comparisonLabel(volume, 'value'), accent: 'blue',
+      comparison: comparisonLabel(volume), accent: 'blue',
     },
     {
       label: 'Taxa de resolução', value: formatPercent(resolution.rate), detail: `${formatNumber(resolution.resolved)} de ${formatNumber(resolution.total)} tickets`,
-      comparison: comparisonLabel(resolution, 'rate', { points: true }), accent: 'green',
+      comparison: comparisonLabel(resolution, { points: true }), accent: 'green',
     },
     {
       label: 'Tempo até a 1ª resposta', value: formatDuration(response.average_seconds), detail: `${formatNumber(response.responded_tickets)} tickets respondidos`,
-      comparison: comparisonLabel(response, 'average_seconds', { lowerIsBetter: true }), accent: 'orange',
+      comparison: comparisonLabel(response, { lowerIsBetter: true }), accent: 'orange',
     },
     {
       label: 'Índice de satisfação', value: formatPercent(satisfaction.rate), detail: `${formatNumber(satisfaction.good)} boas de ${formatNumber(satisfaction.rated_total)} avaliações`,
-      comparison: comparisonLabel(satisfaction, 'rate', { points: true }), accent: 'violet',
+      comparison: comparisonLabel(satisfaction, { points: true }), accent: 'violet',
     },
   ];
 
@@ -290,6 +316,11 @@ export function DashboardPage() {
   const priorityData = (charts.priority_breakdown || []).map((item) => ({ ...item, label: humanize(item.priority) }));
   const responseData = charts.first_response_distribution || [];
 
+  function refresh() {
+    if (period === 'custom') resource.reload();
+    else setAnchor(new Date());
+  }
+
   return (
     <div className="analytics-workspace">
       <header className="analytics-page-header">
@@ -300,8 +331,8 @@ export function DashboardPage() {
           <small>Dados atualizados em {formatDate(data.generated_at)} · Comparação com período anterior de mesma duração</small>
         </div>
         <div className="analytics-header-actions">
-          <button type="button" className="button button-secondary" onClick={() => { setAnchor(new Date()); resource.reload(); }}>↻ Atualizar</button>
-          <button type="button" className="button button-primary" onClick={() => api.exportMetricsReport({ format: 'xlsx', scope: 'overall', metrics: [], filters: query })}>Exportar análise</button>
+          <button type="button" className="button button-secondary" onClick={refresh}>↻ Atualizar</button>
+          <button type="button" className="button button-primary" onClick={() => api.exportMetricsReport({ format: 'xlsx', scope: 'overall', metrics: [], filters: reportFilters })}>Exportar análise</button>
         </div>
       </header>
 
@@ -314,6 +345,7 @@ export function DashboardPage() {
           <MultiSelect label="Prioridade" values={filters.priorities} options={PRIORITY_OPTIONS.map((value) => ({ value, label: humanize(value) }))} onChange={(values) => updateFilter('priorities', values)} />
           <MultiSelect label="Tags" values={filters.tag_names} options={tagOptions} onChange={(values) => updateFilter('tag_names', values)} searchable />
           <MultiSelect label="Cliente" values={filters.requester_emails} options={customerOptions} onChange={(values) => updateFilter('requester_emails', values)} searchable />
+          <MultiSelect label="Responsável" values={filters.assignee_external_ids} options={assigneeOptions} onChange={(values) => updateFilter('assignee_external_ids', values)} searchable />
         </div>
         {period === 'custom' ? (
           <div className="custom-period-row">
@@ -321,7 +353,7 @@ export function DashboardPage() {
             <label><span>Até</span><input type="datetime-local" value={customRange.to_at} onChange={(event) => setCustomRange((current) => ({ ...current, to_at: event.target.value }))} /></label>
           </div>
         ) : null}
-        <ActiveFilters filters={filters} onRemove={removeFilter} onClear={clearFilters} />
+        <ActiveFilters filters={filters} assigneeLabels={assigneeLabels} onRemove={removeFilter} onClear={clearFilters} />
       </section>
 
       <OperationalStory summary={data.summary} />
