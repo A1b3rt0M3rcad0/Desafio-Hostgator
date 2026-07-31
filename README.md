@@ -215,6 +215,8 @@ npm run build
 
 A pipeline `Analytics CI` executa compilação Python, suíte pytest com MySQL 8 e build do frontend. Os cenários de integração cobrem importação idempotente, fórmulas, reconstrução RAW, comparação temporal, dimensões de filtro e independência entre limite visual da série e denominadores analíticos.
 
+A validação automatizada atual executa 15 testes e o build de produção do frontend. A aprovação visual final deve ser feita com a aplicação executando no navegador e dados representativos importados.
+
 ## Estado e logs
 
 ```bash
