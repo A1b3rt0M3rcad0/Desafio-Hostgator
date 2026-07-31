@@ -1,11 +1,14 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from src.bootstrap.composers.database import DATABASE_ENGINE
+from src.bootstrap.security import AUTH_SETTINGS
 from src.presentation.http.fastapi.exceptions import register_exception_handlers
 from src.presentation.http.fastapi.routes import (
+    auth_router,
     customers_router,
     satisfaction_ratings_router,
     tags_router,
@@ -13,6 +16,7 @@ from src.presentation.http.fastapi.routes import (
     tickets_router,
     users_router,
 )
+from src.presentation.http.fastapi.security import require_authenticated_request
 
 
 @asynccontextmanager
@@ -24,17 +28,29 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     application = FastAPI(
         title="Customer Support Analysis API",
-        version="0.1.0",
+        version="0.2.0",
         lifespan=lifespan,
     )
 
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=list(AUTH_SETTINGS.allowed_origins),
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type", AUTH_SETTINGS.csrf_header_name],
+        max_age=600,
+    )
+
     register_exception_handlers(application)
-    application.include_router(customers_router)
-    application.include_router(users_router)
-    application.include_router(tickets_router)
-    application.include_router(tags_router)
-    application.include_router(satisfaction_ratings_router)
-    application.include_router(ticket_tags_router)
+    application.include_router(auth_router)
+
+    protected_dependencies = [Depends(require_authenticated_request)]
+    application.include_router(customers_router, dependencies=protected_dependencies)
+    application.include_router(users_router, dependencies=protected_dependencies)
+    application.include_router(tickets_router, dependencies=protected_dependencies)
+    application.include_router(tags_router, dependencies=protected_dependencies)
+    application.include_router(satisfaction_ratings_router, dependencies=protected_dependencies)
+    application.include_router(ticket_tags_router, dependencies=protected_dependencies)
 
     return application
 
