@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.application.dtos.analytics import AnalyticsFilters, CustomerMetricsInput
+from src.application.dtos.imports import SyncTicketsOutput, TicketImportRecord
 from src.domain.analytics import RawField, ReportFormat
 
 
@@ -34,6 +35,11 @@ class AnalyticsQueryRepository(ABC):
         limit: int,
         offset: int,
     ) -> list[dict[str, Any]]: ...
+
+
+class TicketImportRepository(ABC):
+    @abstractmethod
+    async def sync(self, records: list[TicketImportRecord]) -> SyncTicketsOutput: ...
 
 
 class ReportWriter(ABC):
