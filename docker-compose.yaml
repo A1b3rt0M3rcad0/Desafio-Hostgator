@@ -1,12 +1,13 @@
-# Docker Compose loads interpolation variables from the file passed with
-# --env-file. Start the stack with:
-# docker compose --env-file .db.env up --build --wait --wait-timeout 120
+# Docker Compose automatically loads variables from .env in this directory.
+# First local test:
+#   cp .env.example .env
+#   docker compose up --build --wait --wait-timeout 120
 services:
   db:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .db.env}"
-      MYSQL_DATABASE: "${MYSQL_DATABASE:?Set MYSQL_DATABASE in .db.env}"
+      MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
+      MYSQL_DATABASE: "${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}"
     ports:
       - "3306:3306"
     volumes:
@@ -23,7 +24,7 @@ services:
       context: .
       dockerfile: Dockerfile.migrations
     environment:
-      MYSQL_URL_CONNECTION_MIGRATIONS: "${MYSQL_URL_CONNECTION_MIGRATIONS:?Set MYSQL_URL_CONNECTION_MIGRATIONS in .db.env}"
+      MYSQL_URL_CONNECTION_MIGRATIONS: "${MYSQL_URL_CONNECTION_MIGRATIONS:?Set MYSQL_URL_CONNECTION_MIGRATIONS in .env}"
     depends_on:
       db:
         condition: service_healthy
@@ -33,15 +34,15 @@ services:
       context: .
       dockerfile: Dockerfile.api
     environment:
-      MYSQL_URL_CONNECTION_API: "${MYSQL_URL_CONNECTION_API:?Set MYSQL_URL_CONNECTION_API in .db.env}"
-      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .db.env}"
+      MYSQL_URL_CONNECTION_API: "${MYSQL_URL_CONNECTION_API:?Set MYSQL_URL_CONNECTION_API in .env}"
+      JWT_SECRET_KEY: "${JWT_SECRET_KEY:?Set JWT_SECRET_KEY in .env}"
       JWT_ALGORITHM: "${JWT_ALGORITHM:-HS256}"
       JWT_ISSUER: "${JWT_ISSUER:-desafio-hostgator-api}"
       JWT_AUDIENCE: "${JWT_AUDIENCE:-desafio-hostgator-web}"
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-15}"
-      REFRESH_TOKEN_PEPPER: "${REFRESH_TOKEN_PEPPER:?Set REFRESH_TOKEN_PEPPER in .db.env}"
+      REFRESH_TOKEN_PEPPER: "${REFRESH_TOKEN_PEPPER:?Set REFRESH_TOKEN_PEPPER in .env}"
       REFRESH_TOKEN_EXPIRE_DAYS: "${REFRESH_TOKEN_EXPIRE_DAYS:-7}"
-      CSRF_SECRET_KEY: "${CSRF_SECRET_KEY:?Set CSRF_SECRET_KEY in .db.env}"
+      CSRF_SECRET_KEY: "${CSRF_SECRET_KEY:?Set CSRF_SECRET_KEY in .env}"
       CSRF_HEADER_NAME: "${CSRF_HEADER_NAME:-X-CSRF-Token}"
       BCRYPT_ROUNDS: "${BCRYPT_ROUNDS:-12}"
       AUTH_COOKIE_SECURE: "${AUTH_COOKIE_SECURE:-false}"
