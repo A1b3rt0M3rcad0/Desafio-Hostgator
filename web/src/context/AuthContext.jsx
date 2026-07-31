@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { api, ApiError } from '../services/api.js';
-import { navigate } from '../app/router.js';
+import { navigate } from '../app/router.jsx';
 
 const AuthContext = createContext(null);
 

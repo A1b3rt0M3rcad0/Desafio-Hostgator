@@ -1,4 +1,4 @@
-import { Link } from '../app/router.js';
+import { Link } from '../app/router.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const navigation = [

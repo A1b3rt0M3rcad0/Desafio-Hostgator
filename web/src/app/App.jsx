@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react';
-import { useRouter, navigate } from './router.js';
+import { useRouter, navigate } from './router.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { AppLayout } from '../components/AppLayout.jsx';
 import { Spinner } from '../components/UI.jsx';

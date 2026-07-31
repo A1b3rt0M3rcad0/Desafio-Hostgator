@@ -1,4 +1,4 @@
-import { Link } from '../app/router.js';
+import { Link } from '../app/router.jsx';
 import { humanize } from '../utils/format.js';
 
 export function Spinner({ label = 'Carregando' }) {
