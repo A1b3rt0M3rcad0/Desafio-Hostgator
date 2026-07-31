@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, ValidationInfo, field_validator, model_validator
 
 from src.domain.analytics import DEFAULT_METRICS, DEFAULT_RAW_FIELDS, MetricCode, RawField, ReportFormat, ReportScope
 from src.domain.entities import SatisfactionScore, TicketPriority, TicketStatus
@@ -35,12 +35,16 @@ class AnalyticsFilters(BaseModel):
         mode="before",
     )
     @classmethod
-    def normalize_lists(cls, value: Any) -> Any:
+    def normalize_lists(cls, value: Any, info: ValidationInfo) -> Any:
         if value is None or value == "":
-            return []
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return value
+            items: Any = []
+        elif isinstance(value, str):
+            items = [item.strip() for item in value.split(",") if item.strip()]
+        else:
+            items = value
+        if info.field_name in {"statuses", "priorities", "satisfaction_scores"}:
+            return [item.upper() if isinstance(item, str) else item for item in items]
+        return items
 
     @field_validator("requester_emails", mode="after")
     @classmethod
