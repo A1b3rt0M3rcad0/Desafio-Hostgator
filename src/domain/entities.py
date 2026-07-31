@@ -40,7 +40,18 @@ class BaseEntity(BaseModel):
 class UserEntity(BaseEntity):
     email: str
     password_hash: bytes
-    refresh_token: str
+
+
+class AuthSessionEntity(BaseEntity):
+    user_id: UUID
+    refresh_token_hash: bytes
+    expires_at: datetime
+    last_used_at: datetime
+    revoked_at: datetime | None = None
+    compromised_at: datetime | None = None
+    rotation_counter: int = 0
+    user_agent: str | None = None
+    ip_address: str | None = None
 
 
 class CustomerEntity(BaseEntity):

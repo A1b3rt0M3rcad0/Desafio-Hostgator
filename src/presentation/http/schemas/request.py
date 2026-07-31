@@ -2,11 +2,13 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.application.dtos.auth import AuthenticatedUser
+
 
 class Request(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
-    
-    user: str | None = None
+
+    user: AuthenticatedUser | None = None
     url: str | None = None
     method: str | None = None
     headers: dict[str, Any] = Field(default_factory=dict)

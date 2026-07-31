@@ -2,7 +2,7 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
-from src.domain.entities import UserEntity
+from src.application.dtos.auth import UserView
 
 
 class GetUserInput(BaseModel):
@@ -10,4 +10,4 @@ class GetUserInput(BaseModel):
 
 
 class GetUserOutput(BaseModel):
-    user: UserEntity | None
+    user: UserView | None

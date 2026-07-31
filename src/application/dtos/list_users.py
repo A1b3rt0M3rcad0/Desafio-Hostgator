@@ -1,7 +1,7 @@
 from pydantic import BaseModel
 
+from src.application.dtos.auth import UserView
 from src.application.dtos.cursor_page import CursorPage
-from src.domain.entities import UserEntity
 
 
 class ListUsersInput(BaseModel):
@@ -10,4 +10,4 @@ class ListUsersInput(BaseModel):
 
 
 class ListUsersOutput(BaseModel):
-    page: CursorPage[UserEntity]
+    page: CursorPage[UserView]
