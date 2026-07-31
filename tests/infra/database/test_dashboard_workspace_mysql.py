@@ -73,7 +73,7 @@ async def _run_scenario() -> None:
             dashboard = await DashboardWorkspaceQueryRepository(unit_of_work).get_dashboard(
                 filters,
                 top_topics_limit=8,
-                timeline_limit=90,
+                timeline_limit=1,
             )
 
         volume = dashboard["metrics"]["ticket_volume"]
@@ -82,6 +82,16 @@ async def _run_scenario() -> None:
         assert volume["change_percent"] == pytest.approx(100.0)
         assert dashboard["scope"]["is_comparable"] is True
         assert dashboard["scope"]["previous_from_at"] is not None
+        assert len(dashboard["charts"]["operation_timeseries"]) == 1
+
+        topics = {item["tag"]: item for item in dashboard["charts"]["top_topics"]}
+        assert topics["dns"]["share"] == pytest.approx(0.5)
+        assert topics["ssl"]["share"] == pytest.approx(0.5)
+        assert dashboard["charts"]["priority_breakdown"][0]["share"] == pytest.approx(1.0)
+        assert sum(
+            item["share"] or 0
+            for item in dashboard["charts"]["first_response_distribution"]
+        ) == pytest.approx(1.0)
 
         options = dashboard["filter_options"]
         assert {item["name"] for item in options["tags"]} == {"dns", "ssl"}
