@@ -12,6 +12,7 @@ jobs:
   backend:
     runs-on: ubuntu-latest
     env:
+      PYTHONPATH: .
       MYSQL_URL_CONNECTION_API: mysql+aiomysql://root:test-password@127.0.0.1:3306/test_database
       JWT_SECRET_KEY: test-jwt-secret-key-with-at-least-32-bytes
       JWT_ALGORITHM: HS256
