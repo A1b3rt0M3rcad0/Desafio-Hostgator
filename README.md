@@ -88,6 +88,8 @@ Domain -> Application contracts/DTOs/use cases -> Infrastructure -> Presentation
 
 Os repositórios CRUD existentes permanecem independentes. Dashboard, métricas, importação e relatórios utilizam contratos próprios de leitura e sincronização, evitando adicionar consultas analíticas ao `TicketRepository` genérico.
 
+O dashboard utiliza um read model especializado. Os relatórios e a listagem de métricas por cliente continuam utilizando o repositório analítico base, evitando que dimensões e comparações específicas da tela contaminem os demais casos de uso.
+
 ## Importação do mock
 
 A tela de importação valida o JSON no navegador e, após confirmação, envia os tickets para:
@@ -116,6 +118,20 @@ GET /metrics/customers
 
 Filtros suportados incluem período, clientes, e-mails, status, prioridades, tags, atendentes, avaliações e existência de primeira resposta.
 
+O `GET /dashboard` fornece, no mesmo escopo de filtros:
+
+- métricas atuais e comparação com o período anterior de mesma duração;
+- resumo operacional determinístico;
+- série temporal diária com tickets abertos, resolvidos, resolução, satisfação e primeira resposta;
+- distribuição de status;
+- desempenho por prioridade;
+- distribuição do tempo até a primeira resposta;
+- assuntos principais com volume, participação, resolução e resposta média;
+- recorrência e concentração por cliente;
+- dimensões completas para os seletores de tags, clientes e responsáveis.
+
+A série temporal pode ser limitada para exibição sem alterar os denominadores das participações. Percentuais de prioridade, assunto e faixa de resposta sempre usam o volume completo resultante dos filtros.
+
 Definições utilizadas:
 
 | Métrica | Definição |
@@ -126,6 +142,8 @@ Definições utilizadas:
 | Taxa de resolução | Tickets `SOLVED` ou `CLOSED` divididos pelo total. |
 | Índice de satisfação | `GOOD / (GOOD + BAD)`. `OFFERED` e `UNOFFERED` não entram no denominador. |
 | Tempo médio até a primeira resposta | Média de `first_response_at - source_created_at` para respostas válidas. |
+
+As faixas de tempo até a primeira resposta são indicadores operacionais. Elas não representam conformidade de SLA, pois não existe meta formal configurada por prioridade.
 
 Quando não existe denominador válido, taxas e médias retornam `null`, evitando representar ausência de dados como zero.
 
@@ -159,12 +177,20 @@ Telas implementadas:
 
 - login e registro;
 - páginas 401, 403, 404 e 500;
-- dashboard com filtros globais e métricas calculadas pelo backend;
+- dashboard analítico com períodos rápidos e intervalo personalizado;
+- filtros pesquisáveis por status, prioridade, tags, cliente e responsável;
+- escopo ativo persistido na URL e representado por chips removíveis;
+- resumo operacional e quatro indicadores principais comparados ao período anterior;
+- gráfico temporal interativo com inspeção de cada período;
+- composição da fila, pressão por prioridade e distribuição da primeira resposta;
+- recorrência dos clientes e análise de assuntos principais;
 - visualização somente leitura de tickets e clientes;
 - detalhes de tickets e clientes;
 - importação persistente do JSON RAW;
 - métricas paginadas por cliente;
 - relatórios RAW e de métricas em CSV e XLSX.
+
+Os gráficos principais utilizam SVG responsivo no próprio frontend. Estados sem dados são explícitos e nunca fabricam totais para manter um gráfico visível.
 
 ### Desenvolvimento sem Docker
 
@@ -187,7 +213,7 @@ npm install
 npm run build
 ```
 
-A pipeline `Analytics CI` executa compilação Python, suíte pytest e build do frontend.
+A pipeline `Analytics CI` executa compilação Python, suíte pytest com MySQL 8 e build do frontend. Os cenários de integração cobrem importação idempotente, fórmulas, reconstrução RAW, comparação temporal, dimensões de filtro e independência entre limite visual da série e denominadores analíticos.
 
 ## Estado e logs
 
