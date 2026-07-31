@@ -1,5 +1,7 @@
-# The repository contains versioned local mock values in .env and .env.web.
-# A fresh clone can start directly with: docker compose up --build
+# Docker Compose automatically loads variables from the root .env file.
+# First local startup:
+#   cp .env.example .env
+#   docker compose up --build
 services:
   db:
     image: mysql:8.0
@@ -73,8 +75,17 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.web
-    env_file:
-      - .env.web
+    environment:
+      WEB_APP_NAME: "${WEB_APP_NAME:-HostGator Analytics}"
+      WEB_APP_ENV: "${WEB_APP_ENV:-development}"
+      WEB_PUBLIC_URL: "${WEB_PUBLIC_URL:-http://localhost:5173}"
+      WEB_API_URL: "${WEB_API_URL:-/api}"
+      WEB_API_UPSTREAM_URL: "${WEB_API_UPSTREAM_URL:-http://api:8000}"
+      WEB_SERVER_NAME: "${WEB_SERVER_NAME:-_}"
+      WEB_REQUEST_TIMEOUT_MS: "${WEB_REQUEST_TIMEOUT_MS:-15000}"
+      WEB_REGISTRATION_ENABLED: "${WEB_REGISTRATION_ENABLED:-true}"
+      WEB_CSRF_COOKIE_NAME: "${WEB_CSRF_COOKIE_NAME:-csrf_token}"
+      WEB_CSRF_HEADER_NAME: "${WEB_CSRF_HEADER_NAME:-X-CSRF-Token}"
     ports:
       - "${WEB_HOST_PORT:-5173}:80"
     depends_on:

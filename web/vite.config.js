@@ -4,12 +4,12 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 const webDirectory = path.dirname(fileURLToPath(import.meta.url));
-const webEnvPath = path.resolve(webDirectory, '../.env.web');
+const rootEnvPath = path.resolve(webDirectory, '../.env');
 
-function readWebEnvironment() {
-  if (!fs.existsSync(webEnvPath)) return {};
+function readRootEnvironment() {
+  if (!fs.existsSync(rootEnvPath)) return {};
 
-  return fs.readFileSync(webEnvPath, 'utf8')
+  return fs.readFileSync(rootEnvPath, 'utf8')
     .split(/\r?\n/)
     .reduce((values, line) => {
       const normalized = line.trim();
@@ -25,9 +25,9 @@ function readWebEnvironment() {
     }, {});
 }
 
-const webEnvironment = readWebEnvironment();
-const developmentPort = Number(webEnvironment.WEB_DEV_PORT || 5173);
-const developmentApiUrl = webEnvironment.WEB_DEV_API_UPSTREAM_URL || 'http://localhost:8000';
+const environment = readRootEnvironment();
+const developmentPort = Number(environment.WEB_DEV_PORT || 5173);
+const developmentApiUrl = environment.WEB_DEV_API_UPSTREAM_URL || 'http://localhost:8000';
 
 export default defineConfig({
   esbuild: {

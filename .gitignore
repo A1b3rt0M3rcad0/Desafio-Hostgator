@@ -9,7 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
-# Local environment overrides. The versioned .env and .env.web contain mock defaults.
+# Local environment
+.env
 .env.local
 .env.*.local
 
