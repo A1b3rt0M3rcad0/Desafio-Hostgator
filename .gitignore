@@ -8,4 +8,12 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Local environment
 .env
+.env.local
+.env.*.local
+
+# Frontend
+web/node_modules/
+web/dist/

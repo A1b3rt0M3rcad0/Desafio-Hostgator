@@ -5,5 +5,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .env
+.env.local
+.env.*.local
+web/node_modules/
+web/dist/
 .git
 .gitignore

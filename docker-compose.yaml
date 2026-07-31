@@ -1,9 +1,7 @@
-# Docker Compose automatically loads variables from .env in this directory.
-# First local test:
+# Docker Compose automatically loads variables from the root .env file.
+# First local startup:
 #   cp .env.example .env
-#   docker compose up --build -d
-# Optional strict startup validation:
-#   docker compose up --build -d --wait --wait-timeout 120
+#   docker compose up --build
 services:
   db:
     image: mysql:8.0
@@ -11,7 +9,7 @@ services:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
       MYSQL_DATABASE: "${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}"
     ports:
-      - "3306:3306"
+      - "${MYSQL_HOST_PORT:-3306}:3306"
     volumes:
       - db_data:/var/lib/mysql
     healthcheck:
@@ -53,10 +51,10 @@ services:
       AUTH_ACCESS_COOKIE_NAME: "${AUTH_ACCESS_COOKIE_NAME:-access_token}"
       AUTH_REFRESH_COOKIE_NAME: "${AUTH_REFRESH_COOKIE_NAME:-refresh_token}"
       AUTH_CSRF_COOKIE_NAME: "${AUTH_CSRF_COOKIE_NAME:-csrf_token}"
-      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:5173}"
-      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:5173}"
+      CORS_ALLOWED_ORIGINS: "${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
+      TRUSTED_ORIGINS: "${TRUSTED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}"
     ports:
-      - "8000:8000"
+      - "${API_HOST_PORT:-8000}:8000"
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -72,6 +70,34 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    environment:
+      WEB_APP_NAME: "${WEB_APP_NAME:-HostGator Analytics}"
+      WEB_APP_ENV: "${WEB_APP_ENV:-development}"
+      WEB_PUBLIC_URL: "${WEB_PUBLIC_URL:-http://localhost:5173}"
+      WEB_API_URL: "${WEB_API_URL:-/api}"
+      WEB_API_UPSTREAM_URL: "${WEB_API_UPSTREAM_URL:-http://api:8000}"
+      WEB_SERVER_NAME: "${WEB_SERVER_NAME:-_}"
+      WEB_REQUEST_TIMEOUT_MS: "${WEB_REQUEST_TIMEOUT_MS:-15000}"
+      WEB_REGISTRATION_ENABLED: "${WEB_REGISTRATION_ENABLED:-true}"
+      WEB_CSRF_COOKIE_NAME: "${WEB_CSRF_COOKIE_NAME:-csrf_token}"
+      WEB_CSRF_HEADER_NAME: "${WEB_CSRF_HEADER_NAME:-X-CSRF-Token}"
+    ports:
+      - "${WEB_HOST_PORT:-5173}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
 
 volumes:
   db_data:

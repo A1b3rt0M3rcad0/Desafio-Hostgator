@@ -26,6 +26,7 @@ Base = declarative_base()
 
 class BaseModel(Base):
     __abstract__ = True
+    __mapper_args__ = {"eager_defaults": True}
 
     id: Mapped[UUID] = mapped_column(
         SQLAlchemyUUID(as_uuid=True),
