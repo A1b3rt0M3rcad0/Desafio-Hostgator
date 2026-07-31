@@ -16,6 +16,7 @@ from sqlalchemy import (
     Uuid as SQLAlchemyUUID,
     func,
 )
+from sqlalchemy.dialects.mysql import BINARY as MySQLBinary
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 
 from src.domain.entities import SatisfactionScore, TicketPriority, TicketStatus
@@ -66,6 +67,12 @@ class User(BaseModel):
 
 class AuthSession(BaseModel):
     __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint(
+            "refresh_token_hash",
+            name="uq_auth_sessions_refresh_token_hash",
+        ),
+    )
 
     user_id: Mapped[UUID] = mapped_column(
         SQLAlchemyUUID(as_uuid=True),
@@ -74,8 +81,7 @@ class AuthSession(BaseModel):
         nullable=False,
     )
     refresh_token_hash: Mapped[bytes] = mapped_column(
-        LargeBinary(32),
-        unique=True,
+        MySQLBinary(32),
         nullable=False,
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
@@ -163,13 +169,21 @@ class SatisfactionRating(BaseModel):
         nullable=False,
     )
     score: Mapped[SatisfactionScore] = mapped_column(
-        SQLAlchemyEnum(SatisfactionScore, name="satisfaction_score", native_enum=True, validate_strings=True),
+        SQLAlchemyEnum(
+            SatisfactionScore,
+            name="satisfaction_score",
+            native_enum=True,
+            validate_strings=True,
+        ),
         nullable=False,
     )
     offered_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     comment: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
-    ticket: Mapped[Ticket] = relationship(back_populates="satisfaction_rating", lazy="joined")
+    ticket: Mapped[Ticket] = relationship(
+        back_populates="satisfaction_rating",
+        lazy="joined",
+    )
 
 
 class Tag(BaseModel):
@@ -192,7 +206,11 @@ class Tag(BaseModel):
 class TicketTag(BaseModel):
     __tablename__ = "ticket_tags"
     __table_args__ = (
-        UniqueConstraint("ticket_id", "tag_id", name="uq_ticket_tags_ticket_id_tag_id"),
+        UniqueConstraint(
+            "ticket_id",
+            "tag_id",
+            name="uq_ticket_tags_ticket_id_tag_id",
+        ),
     )
 
     ticket_id: Mapped[UUID] = mapped_column(
