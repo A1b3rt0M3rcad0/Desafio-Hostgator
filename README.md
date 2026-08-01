@@ -11,10 +11,18 @@ cp .env.example .env
 docker compose up --build
 ```
 
-O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios, com data de referência em 1º de agosto de 2026. Para regenerá-lo:
+O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios. Todos os timestamps do arquivo padrão pertencem a 2026 e estão limitados pela referência `2026-08-01T05:30:00Z`.
+
+Para regenerar o fixture padrão de 2026:
 
 ```bash
 python data/generate_tickets_mock.py
+```
+
+Para gerar o mesmo cenário em outro ano:
+
+```bash
+python data/generate_tickets_mock.py --year 2025
 ```
 
 Para iniciar em segundo plano e aguardar os healthchecks:
@@ -62,6 +70,31 @@ Domain
 Os repositórios CRUD permanecem independentes. Dashboard, métricas e exportações utilizam contratos de leitura próprios. Controllers não executam SQL e casos de uso não dependem de FastAPI ou SQLAlchemy.
 
 Não existe upload manual de JSON nem rota produtiva de importação. A ingestão automática é executada por um worker de infraestrutura isolado.
+
+## Dados de demonstração
+
+Todo o material relacionado à geração e ao consumo da fonte está em `data/`:
+
+```text
+data/
+├── generate_tickets_mock.py
+├── tickets.json
+└── README.md
+```
+
+O diretório legado `mock/` não faz mais parte do projeto. O gerador grava diretamente `data/tickets.json`, valida o conjunto completo e substitui o arquivo de forma atômica.
+
+Defaults do gerador:
+
+```text
+Ano: 2026
+Âncora: 2026-08-01T05:30:00Z
+Tickets: 10.000
+Clientes: 500
+Saída: data/tickets.json
+```
+
+Os argumentos `--year` e `--anchor` são mutuamente exclusivos. O primeiro altera o ano mantendo a referência em 1º de agosto; o segundo permite informar uma referência ISO-8601 exata.
 
 ## Worker de ingestão automática
 
@@ -217,27 +250,18 @@ npm install
 npm run dev
 ```
 
-## Testes
+## Testes locais
 
 ```bash
 uv sync --dev
+PYTHONPATH=. uv run python -m compileall -q src tests data/generate_tickets_mock.py
 PYTHONPATH=. uv run pytest -q
 cd web
 npm install
 npm run build
 ```
 
-A pipeline `Analytics CI` executa:
-
-- compilação Python;
-- testes unitários;
-- cenários de integração com MySQL 8;
-- exportação detalhada com filtros;
-- métricas e comparação temporal;
-- writers CSV/XLSX;
-- build de produção do frontend.
-
-Os dados dos testes são inseridos por fixtures internas de teste, sem expor qualquer fluxo manual de ingestão na aplicação.
+Os dados dos testes são inseridos por fixtures internas de teste, sem expor qualquer fluxo manual de ingestão na aplicação. O repositório não utiliza pipeline de CI.
 
 ## Estado e logs
 
