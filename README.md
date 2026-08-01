@@ -4,11 +4,17 @@ Aplicação para persistência, processamento, visualização analítica e expor
 
 ## Inicialização local
 
-Copie o arquivo de exemplo para `.env`, coloque o JSON do desafio em `data/tickets.json` e suba o stack:
+O repositório já inclui a fonte estática em `data/tickets.json`. Copie o arquivo de exemplo para `.env` e suba o stack:
 
 ```bash
 cp .env.example .env
 docker compose up --build
+```
+
+O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios, com data de referência em 1º de agosto de 2026. Para regenerá-lo:
+
+```bash
+python data/generate_tickets_mock.py
 ```
 
 Para iniciar em segundo plano e aguardar os healthchecks:
@@ -28,7 +34,7 @@ A inicialização segue `db -> migrations -> api/web` e `db -> migrations -> wor
 
 ## Configuração de ambiente
 
-Somente `.env.example` é versionado. O `.env` é local, ignorado pelo Git e usado pelo Docker Compose para interpolar as configurações dos serviços.
+Somente `.env.example` é usado como modelo de configuração. O `.env` é local, ignorado pelo Git e usado pelo Docker Compose para interpolar as configurações dos serviços.
 
 O navegador acessa a API pelo proxy do Nginx:
 
