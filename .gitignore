@@ -17,3 +17,6 @@ wheels/
 # Frontend
 web/node_modules/
 web/dist/
+
+# Local ingestion source
+data/tickets.json
