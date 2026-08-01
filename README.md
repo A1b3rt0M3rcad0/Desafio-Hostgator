@@ -8,27 +8,19 @@ O repositório já inclui a fonte estática em `data/tickets.json`. Copie o arqu
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
-O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios. Todos os timestamps do arquivo padrão pertencem a 2026 e estão limitados pela referência `2026-08-01T05:30:00Z`.
-
-Para regenerar o fixture padrão de 2026:
+O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios. Todas as datas do arquivo padrão pertencem a 2026 e estão limitadas à referência de 1º de agosto de 2026. Para regenerá-lo:
 
 ```bash
 python data/generate_tickets_mock.py
 ```
 
-Para gerar o mesmo cenário em outro ano:
+Outro ano pode ser selecionado explicitamente:
 
 ```bash
 python data/generate_tickets_mock.py --year 2025
-```
-
-Para iniciar em segundo plano e aguardar os healthchecks:
-
-```bash
-docker compose up --build -d --wait --wait-timeout 120
 ```
 
 Serviços locais padrão:
@@ -38,7 +30,7 @@ Serviços locais padrão:
 - Documentação da API: `http://localhost:8000/docs`
 - MySQL: `localhost:3306`
 
-A inicialização segue `db -> migrations -> api/web` e `db -> migrations -> worker`. O worker não depende da API e não expõe porta.
+A inicialização segue `db -> migrations -> api/web` e `db -> migrations -> worker`. O healthcheck do MySQL usa TCP autenticado e o container de migrations confirma uma conexão SQL real, com retentativas limitadas, antes de executar o Alembic. O worker não depende da API e não expõe porta.
 
 ## Configuração de ambiente
 
@@ -70,31 +62,6 @@ Domain
 Os repositórios CRUD permanecem independentes. Dashboard, métricas e exportações utilizam contratos de leitura próprios. Controllers não executam SQL e casos de uso não dependem de FastAPI ou SQLAlchemy.
 
 Não existe upload manual de JSON nem rota produtiva de importação. A ingestão automática é executada por um worker de infraestrutura isolado.
-
-## Dados de demonstração
-
-Todo o material relacionado à geração e ao consumo da fonte está em `data/`:
-
-```text
-data/
-├── generate_tickets_mock.py
-├── tickets.json
-└── README.md
-```
-
-O diretório legado `mock/` não faz mais parte do projeto. O gerador grava diretamente `data/tickets.json`, valida o conjunto completo e substitui o arquivo de forma atômica.
-
-Defaults do gerador:
-
-```text
-Ano: 2026
-Âncora: 2026-08-01T05:30:00Z
-Tickets: 10.000
-Clientes: 500
-Saída: data/tickets.json
-```
-
-Os argumentos `--year` e `--anchor` são mutuamente exclusivos. O primeiro altera o ano mantendo a referência em 1º de agosto; o segundo permite informar uma referência ISO-8601 exata.
 
 ## Worker de ingestão automática
 
@@ -254,14 +221,13 @@ npm run dev
 
 ```bash
 uv sync --dev
-PYTHONPATH=. uv run python -m compileall -q src tests data/generate_tickets_mock.py
 PYTHONPATH=. uv run pytest -q
 cd web
 npm install
 npm run build
 ```
 
-Os dados dos testes são inseridos por fixtures internas de teste, sem expor qualquer fluxo manual de ingestão na aplicação. O repositório não utiliza pipeline de CI.
+Os dados dos testes são inseridos por fixtures internas, sem expor qualquer fluxo manual de ingestão na aplicação.
 
 ## Estado e logs
 
