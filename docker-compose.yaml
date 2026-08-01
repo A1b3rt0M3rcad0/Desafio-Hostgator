@@ -71,6 +71,23 @@ services:
       retries: 5
       start_period: 10s
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      MYSQL_URL_CONNECTION_WORKER: "${MYSQL_URL_CONNECTION_WORKER:?Set MYSQL_URL_CONNECTION_WORKER in .env}"
+      WORKER_SOURCE_PATH: "${WORKER_SOURCE_PATH:-/data/tickets.json}"
+      WORKER_BATCH_SIZE: "${WORKER_BATCH_SIZE:-25}"
+      WORKER_INTERVAL_SECONDS: "${WORKER_INTERVAL_SECONDS:-30}"
+      WORKER_CONTROL_POLL_SECONDS: "${WORKER_CONTROL_POLL_SECONDS:-2}"
+    volumes:
+      - ./data:/data:ro
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   web:
     build:
       context: .
