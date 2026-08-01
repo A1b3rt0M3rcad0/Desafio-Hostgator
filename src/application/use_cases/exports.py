@@ -16,6 +16,8 @@ from src.application.dtos.exports import (
 from src.domain.analytics import (
     DEFAULT_DATA_EXPORT_FIELDS,
     DEFAULT_METRICS,
+    ESSENTIAL_DATA_EXPORT_FIELDS,
+    SERVICE_DATA_EXPORT_FIELDS,
     MetricCode,
     ReportFormat,
     ReportScope,
@@ -59,6 +61,27 @@ _METRIC_CATALOG = (
     ),
 )
 
+_FIELD_PRESETS = (
+    (
+        "essential",
+        "Essencial",
+        "Colunas principais para análise rápida de tickets.",
+        ESSENTIAL_DATA_EXPORT_FIELDS,
+    ),
+    (
+        "service",
+        "Atendimento",
+        "Inclui descrição, contato, datas e dados do atendimento.",
+        SERVICE_DATA_EXPORT_FIELDS,
+    ),
+    (
+        "complete",
+        "Completo",
+        "Inclui todos os campos disponíveis no sistema.",
+        DEFAULT_DATA_EXPORT_FIELDS,
+    ),
+)
+
 
 class GetExportCatalog:
     def __init__(self, repository: DataExportRepository) -> None:
@@ -78,6 +101,15 @@ class GetExportCatalog:
             "fields": [
                 {"code": field.value, "label": _FIELD_LABELS[field.value]}
                 for field in DEFAULT_DATA_EXPORT_FIELDS
+            ],
+            "field_presets": [
+                {
+                    "code": code,
+                    "label": label,
+                    "description": description,
+                    "fields": [field.value for field in fields],
+                }
+                for code, label, description, fields in _FIELD_PRESETS
             ],
             "metrics": [
                 {"code": code.value, "label": label, "unit": unit}
@@ -99,6 +131,14 @@ class GetExportCatalog:
                 {"code": item.value, "label": item.value.replace("_", " ").title()}
                 for item in SatisfactionScore
             ],
+            "defaults": {
+                "data_format": ReportFormat.CSV.value,
+                "metrics_format": ReportFormat.XLSX.value,
+                "period_days": 30,
+                "field_preset": "essential",
+                "scope": ReportScope.OVERALL.value,
+                "metrics": [metric.value for metric in DEFAULT_METRICS],
+            },
             "filter_options": filter_options,
         }
 
