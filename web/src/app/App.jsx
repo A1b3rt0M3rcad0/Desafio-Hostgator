@@ -6,9 +6,8 @@ import { Spinner } from '../components/UI.jsx';
 import { LoginPage, RegisterPage } from '../pages/AuthPages.jsx';
 import { DashboardPage } from '../pages/DashboardPage.jsx';
 import { CustomerDetailsPage, CustomersPage, TicketDetailsPage, TicketsPage } from '../pages/DataPages.jsx';
-import { ImportPage } from '../pages/ImportPage.jsx';
+import { ExportsPage } from '../pages/ExportsPage.jsx';
 import { MetricsPage } from '../pages/MetricsPage.jsx';
-import { ReportsPage } from '../pages/ReportsPage.jsx';
 import { ErrorPage } from '../pages/ErrorPages.jsx';
 
 export function App() {
@@ -22,9 +21,8 @@ export function App() {
     { path: '/tickets/:id', public: false, component: TicketDetailsPage },
     { path: '/customers', public: false, component: CustomersPage },
     { path: '/customers/:id', public: false, component: CustomerDetailsPage },
-    { path: '/imports', public: false, component: ImportPage },
     { path: '/metrics', public: false, component: MetricsPage },
-    { path: '/reports', public: false, component: ReportsPage },
+    { path: '/exports', public: false, component: ExportsPage },
     { path: '/401', public: true, component: () => <ErrorPage code="401" title="Sessão necessária" description="Autentique-se para continuar." /> },
     { path: '/403', public: true, component: () => <ErrorPage code="403" title="Acesso negado" description="Seu usuário não possui permissão para esta ação." /> },
     { path: '/500', public: true, component: () => <ErrorPage code="500" title="Erro interno" description="A aplicação não conseguiu concluir a operação." /> },
