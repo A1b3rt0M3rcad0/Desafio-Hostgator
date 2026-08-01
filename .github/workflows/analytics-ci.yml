@@ -1,61 +1,41 @@
-name: Analytics CI
+name: Finalize 2026 fixture
 
 on:
   push:
     branches:
-      - feat/dashboard-reports-analytics
-  pull_request:
-    branches:
-      - master
+      - agent/infrastructure-ticket-ingestion-worker
+
+permissions:
+  contents: write
 
 jobs:
-  backend:
+  finalize:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test-password
-          MYSQL_DATABASE: test_database
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptest-password"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-    env:
-      PYTHONPATH: .
-      MYSQL_URL_CONNECTION_API: mysql+aiomysql://root:test-password@127.0.0.1:3306/test_database
-      JWT_SECRET_KEY: test-jwt-secret-key-with-at-least-32-bytes
-      JWT_ALGORITHM: HS256
-      JWT_ISSUER: desafio-hostgator-api
-      JWT_AUDIENCE: desafio-hostgator-web
-      REFRESH_TOKEN_PEPPER: test-refresh-token-pepper-with-at-least-32-bytes
-      CSRF_SECRET_KEY: test-csrf-secret-key-with-at-least-32-bytes
-      AUTH_COOKIE_SECURE: "false"
-      CORS_ALLOWED_ORIGINS: http://localhost:5173
-      TRUSTED_ORIGINS: http://localhost:5173
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.14"
-      - run: uv sync --dev
-      - run: uv run python -m compileall -q src tests
-      - run: uv run pytest -q
+          ref: agent/infrastructure-ticket-ingestion-worker
+          fetch-depth: 0
 
-  frontend:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package.json
-      - run: npm install --no-audit --no-fund
-      - run: npm run build
+          python-version: '3.14'
+
+      - name: Generate the 2026 fixture
+        run: python data/generate_tickets_mock.py
+
+      - name: Remove the legacy mock directory
+        run: rm -rf mock
+
+      - name: Commit generated data and layout
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No generated changes."
+            exit 0
+          fi
+          git commit -m "Generate 2026 ticket fixture in data"
+          git push origin HEAD:agent/infrastructure-ticket-ingestion-worker
