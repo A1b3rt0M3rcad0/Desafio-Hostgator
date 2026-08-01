@@ -4,6 +4,7 @@ import { App } from './app/App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
 import './styles.css';
 import './analytics.css';
+import './exports.css';
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

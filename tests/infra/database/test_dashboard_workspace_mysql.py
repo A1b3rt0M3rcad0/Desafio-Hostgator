@@ -7,36 +7,10 @@ import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from src.application.dtos.analytics import AnalyticsFilters
-from src.application.dtos.imports import SyncTicketsInput
 from src.infra.database.dashboard_workspace import DashboardWorkspaceQueryRepository
-from src.infra.database.imports import SqlAlchemyTicketImportRepository
 from src.infra.database.models import Base
 from src.infra.database.unit_of_work import UnitOfWork
-
-
-def _ticket(ticket_id: int, created_at: str, status: str, email: str, tag: str) -> dict[str, object]:
-    return {
-        "ticket_id": ticket_id,
-        "subject": f"Ticket {ticket_id}",
-        "description": "Cenário de comparação temporal do dashboard.",
-        "status": status,
-        "priority": "high",
-        "requester_id": ticket_id,
-        "requester_name": f"Cliente {ticket_id}",
-        "requester_email": email,
-        "assignee_id": 9103,
-        "assignee_name": "Marina Alves (Domínios e DNS)",
-        "created_at": created_at,
-        "updated_at": created_at,
-        "first_response_at": created_at,
-        "tags": [tag],
-        "satisfaction_rating": {
-            "score": "good",
-            "offered_at": created_at,
-            "rated_at": created_at,
-            "comment": "Resolvido",
-        },
-    }
+from tests.fixtures.analytics_dataset import seed_analytics_dataset
 
 
 @pytest.mark.skipif(
@@ -54,16 +28,68 @@ async def _run_scenario() -> None:
             await connection.run_sync(Base.metadata.drop_all)
             await connection.run_sync(Base.metadata.create_all)
 
-        records = SyncTicketsInput(
-            tickets=[
-                _ticket(200001, "2026-07-09T12:00:00Z", "solved", "anterior@example.com", "dns"),
-                _ticket(200002, "2026-07-10T12:00:00Z", "open", "atual-a@example.com", "dns"),
-                _ticket(200003, "2026-07-11T12:00:00Z", "solved", "atual-b@example.com", "ssl"),
-            ]
-        ).tickets
+        records = [
+            {
+                "ticket_id": 200001,
+                "requester_id": 200001,
+                "requester_name": "Cliente 200001",
+                "requester_email": "anterior@example.com",
+                "created_at": "2026-07-09T12:00:00Z",
+                "status": "solved",
+                "priority": "high",
+                "first_response_at": "2026-07-09T12:00:00Z",
+                "assignee_id": 9103,
+                "assignee_name": "Marina Alves (Domínios e DNS)",
+                "tags": ["dns"],
+                "satisfaction_rating": {
+                    "score": "good",
+                    "offered_at": "2026-07-09T12:00:00Z",
+                    "rated_at": "2026-07-09T12:00:00Z",
+                    "comment": "Resolvido",
+                },
+            },
+            {
+                "ticket_id": 200002,
+                "requester_id": 200002,
+                "requester_name": "Cliente 200002",
+                "requester_email": "atual-a@example.com",
+                "created_at": "2026-07-10T12:00:00Z",
+                "status": "open",
+                "priority": "high",
+                "first_response_at": "2026-07-10T12:00:00Z",
+                "assignee_id": 9103,
+                "assignee_name": "Marina Alves (Domínios e DNS)",
+                "tags": ["dns"],
+                "satisfaction_rating": {
+                    "score": "good",
+                    "offered_at": "2026-07-10T12:00:00Z",
+                    "rated_at": "2026-07-10T12:00:00Z",
+                    "comment": "Resolvido",
+                },
+            },
+            {
+                "ticket_id": 200003,
+                "requester_id": 200003,
+                "requester_name": "Cliente 200003",
+                "requester_email": "atual-b@example.com",
+                "created_at": "2026-07-11T12:00:00Z",
+                "status": "solved",
+                "priority": "high",
+                "first_response_at": "2026-07-11T12:00:00Z",
+                "assignee_id": 9103,
+                "assignee_name": "Marina Alves (Domínios e DNS)",
+                "tags": ["ssl"],
+                "satisfaction_rating": {
+                    "score": "good",
+                    "offered_at": "2026-07-11T12:00:00Z",
+                    "rated_at": "2026-07-11T12:00:00Z",
+                    "comment": "Resolvido",
+                },
+            },
+        ]
 
         async with UnitOfWork(engine) as unit_of_work:
-            await SqlAlchemyTicketImportRepository(unit_of_work).sync(records)
+            await seed_analytics_dataset(unit_of_work, records)
 
         filters = AnalyticsFilters(
             from_at="2026-07-10T00:00:00Z",

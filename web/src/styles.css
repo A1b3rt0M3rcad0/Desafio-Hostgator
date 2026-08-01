@@ -94,14 +94,9 @@ tbody tr:hover { background: #fafbfe; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .detail-panel { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; padding: 0; overflow: hidden; }
 .detail-panel > div { padding: 20px; display: grid; gap: 7px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.detail-panel span, .report-summary span, .import-summary span { color: var(--muted); font-size: .82rem; }
-.upload-panel { display: grid; gap: 18px; }
-.dropzone { min-height: 220px; border: 2px dashed #b9c5d8; border-radius: 14px; display: grid; place-items: center; align-content: center; gap: 8px; text-align: center; cursor: pointer; background: #f9fbff; }
-.dropzone input { position: absolute; opacity: 0; pointer-events: none; }
-.dropzone span { color: var(--muted); }
-.import-summary, .report-summary { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
-.import-summary > div, .report-summary > div { display: grid; gap: 5px; }
-.import-summary .button { margin-left: auto; }
+.detail-panel span, .report-summary span { color: var(--muted); font-size: .82rem; }
+.report-summary { display: flex; align-items: center; gap: 30px; flex-wrap: wrap; }
+.report-summary > div { display: grid; gap: 5px; }
 .form-error { padding: 12px 14px; border-radius: 10px; background: #fff0f0; color: var(--danger); font-weight: 650; }
 .auth-page { min-height: 100vh; display: grid; grid-template-columns: minmax(360px, 560px) 1fr; background: white; }
 .auth-card { padding: clamp(30px, 6vw, 80px); display: grid; align-content: center; gap: 34px; }

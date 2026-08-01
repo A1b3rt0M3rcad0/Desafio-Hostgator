@@ -5,8 +5,7 @@ from collections.abc import Iterable
 from typing import Any
 
 from src.application.dtos.analytics import AnalyticsFilters, CustomerMetricsInput
-from src.application.dtos.imports import SyncTicketsOutput, TicketImportRecord
-from src.domain.analytics import RawField, ReportFormat
+from src.domain.analytics import ReportFormat
 
 
 class AnalyticsQueryRepository(ABC):
@@ -23,23 +22,6 @@ class AnalyticsQueryRepository(ABC):
         self,
         input_dto: CustomerMetricsInput,
     ) -> dict[str, Any]: ...
-
-    @abstractmethod
-    async def count_raw_rows(self, filters: AnalyticsFilters) -> int: ...
-
-    @abstractmethod
-    async def fetch_raw_rows(
-        self,
-        filters: AnalyticsFilters,
-        fields: list[RawField],
-        limit: int,
-        offset: int,
-    ) -> list[dict[str, Any]]: ...
-
-
-class TicketImportRepository(ABC):
-    @abstractmethod
-    async def sync(self, records: list[TicketImportRecord]) -> SyncTicketsOutput: ...
 
 
 class ReportWriter(ABC):

@@ -11,6 +11,7 @@ from src.presentation.http.fastapi.routes import (
     analytics_router,
     auth_router,
     customers_router,
+    exports_router,
     satisfaction_ratings_router,
     tags_router,
     ticket_tags_router,
@@ -29,7 +30,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     application = FastAPI(
         title="Customer Support Analysis API",
-        version="0.3.0",
+        version="0.4.0",
         lifespan=lifespan,
     )
 
@@ -54,6 +55,7 @@ def create_app() -> FastAPI:
     application.include_router(satisfaction_ratings_router, dependencies=protected_dependencies)
     application.include_router(ticket_tags_router, dependencies=protected_dependencies)
     application.include_router(analytics_router, dependencies=protected_dependencies)
+    application.include_router(exports_router, dependencies=protected_dependencies)
 
     return application
 

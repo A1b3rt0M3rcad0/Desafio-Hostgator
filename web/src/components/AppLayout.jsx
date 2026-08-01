@@ -5,9 +5,8 @@ const navigation = [
   ['/dashboard', 'Visão geral'],
   ['/tickets', 'Tickets'],
   ['/customers', 'Clientes'],
-  ['/imports', 'Importação RAW'],
   ['/metrics', 'Métricas'],
-  ['/reports', 'Relatórios'],
+  ['/exports', 'Exportação de dados'],
 ];
 
 export function AppLayout({ pathname, children }) {
