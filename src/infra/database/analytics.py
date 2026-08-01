@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.analytics import AnalyticsQueryRepository
 from src.application.dtos.analytics import AnalyticsFilters, CustomerMetricsInput
-from src.domain.analytics import RATED_SATISFACTION_SCORES, RESOLVED_STATUSES, RawField
+from src.domain.analytics import (
+    DataExportField,
+    RATED_SATISFACTION_SCORES,
+    RESOLVED_STATUSES,
+)
 from src.infra.database.models import Customer, SatisfactionRating, Tag, Ticket, TicketTag
 from src.infra.database.unit_of_work import UnitOfWork
 
@@ -476,7 +480,7 @@ class SqlAlchemyAnalyticsQueryRepository(AnalyticsQueryRepository):
             "has_previous": input_dto.page > 1,
         }
 
-    async def count_raw_rows(self, filters: AnalyticsFilters) -> int:
+    async def count_export_rows(self, filters: AnalyticsFilters) -> int:
         return int(
             (
                 await self._session.execute(
@@ -486,10 +490,10 @@ class SqlAlchemyAnalyticsQueryRepository(AnalyticsQueryRepository):
             or 0
         )
 
-    async def fetch_raw_rows(
+    async def fetch_export_rows(
         self,
         filters: AnalyticsFilters,
-        fields: list[RawField],
+        fields: list[DataExportField],
         limit: int,
         offset: int,
     ) -> list[dict[str, Any]]:
