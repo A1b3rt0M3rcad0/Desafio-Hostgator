@@ -36,8 +36,7 @@ function buildUrl(path, query) {
   return url.toString();
 }
 
-async function parseResponse(response) {
-  if (response.status === 204) return null;
+async function parseErrorResponse(response) {
   const contentType = response.headers.get('content-type') || '';
   if (contentType.includes('application/json')) return response.json();
   const text = await response.text();
@@ -60,14 +59,17 @@ export async function request(path, options = {}) {
     headers = {},
     retryAuth = true,
     signal,
+    responseType = 'json',
+    withHeaders = false,
+    timeoutMs = REQUEST_TIMEOUT_MS,
   } = options;
 
   const controller = new AbortController();
-  const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
   if (signal) signal.addEventListener('abort', () => controller.abort(), { once: true });
 
   const normalizedMethod = method.toUpperCase();
-  const requestHeaders = { Accept: 'application/json', ...headers };
+  const requestHeaders = { Accept: responseType === 'blob' ? '*/*' : 'application/json', ...headers };
   if (body !== undefined && !(body instanceof FormData)) requestHeaders['Content-Type'] = 'application/json';
   if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) {
     const csrf = readCookie(CSRF_COOKIE_NAME);
@@ -88,8 +90,8 @@ export async function request(path, options = {}) {
       return request(path, { ...options, retryAuth: false });
     }
 
-    const payload = await parseResponse(response);
     if (!response.ok) {
+      const payload = await parseErrorResponse(response);
       const error = payload?.error || payload;
       throw new ApiError(
         error?.message || `A API respondeu com status ${response.status}.`,
@@ -98,13 +100,49 @@ export async function request(path, options = {}) {
         error,
       );
     }
-    return payload;
+
+    let payload = null;
+    if (response.status !== 204) {
+      if (responseType === 'blob') payload = await response.blob();
+      else {
+        const contentType = response.headers.get('content-type') || '';
+        payload = contentType.includes('application/json') ? await response.json() : await response.text();
+      }
+    }
+    return withHeaders ? { payload, headers: response.headers } : payload;
   } catch (error) {
     if (error.name === 'AbortError') throw new ApiError('A requisição excedeu o tempo limite.', 408, 'request_timeout');
     throw error;
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function filenameFromHeaders(headers, fallback) {
+  const disposition = headers.get('content-disposition') || '';
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match) return decodeURIComponent(utf8Match[1]);
+  const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] || fallback;
+}
+
+async function download(path, body, fallback) {
+  const { payload, headers } = await request(path, {
+    method: 'POST',
+    body,
+    responseType: 'blob',
+    withHeaders: true,
+    timeoutMs: 120000,
+  });
+  const url = URL.createObjectURL(payload);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filenameFromHeaders(headers, fallback);
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+  return anchor.download;
 }
 
 export async function ensureAnonymousCsrf() {
@@ -129,4 +167,11 @@ export const api = {
   getCustomer: (id) => request(`/customers/${id}`),
   listTags: (query) => request('/tags', { query }),
   listRatings: (query) => request('/satisfaction-ratings', { query }),
+  getDashboard: (query) => request('/dashboard', { query }),
+  listCustomerMetrics: (query) => request('/metrics/customers', { query }),
+  getReportCatalog: () => request('/reports/catalog'),
+  previewRawReport: (body) => request('/reports/raw/preview', { method: 'POST', body }),
+  exportRawReport: (body) => download('/reports/raw/export', body, `tickets-raw.${body.format || 'csv'}`),
+  exportMetricsReport: (body) => download('/reports/metrics/export', body, `metricas.${body.format || 'csv'}`),
+  syncTickets: (tickets) => request('/imports/tickets/sync', { method: 'POST', body: { tickets }, timeoutMs: 120000 }),
 };

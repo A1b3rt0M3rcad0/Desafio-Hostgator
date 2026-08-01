@@ -8,6 +8,7 @@ from src.bootstrap.composers.database import DATABASE_ENGINE
 from src.bootstrap.security import AUTH_SETTINGS
 from src.presentation.http.fastapi.exceptions import register_exception_handlers
 from src.presentation.http.fastapi.routes import (
+    analytics_router,
     auth_router,
     customers_router,
     satisfaction_ratings_router,
@@ -28,7 +29,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 def create_app() -> FastAPI:
     application = FastAPI(
         title="Customer Support Analysis API",
-        version="0.2.0",
+        version="0.3.0",
         lifespan=lifespan,
     )
 
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Accept", "Content-Type", AUTH_SETTINGS.csrf_header_name],
+        expose_headers=["Content-Disposition", "Content-Length"],
         max_age=600,
     )
 
@@ -51,6 +53,7 @@ def create_app() -> FastAPI:
     application.include_router(tags_router, dependencies=protected_dependencies)
     application.include_router(satisfaction_ratings_router, dependencies=protected_dependencies)
     application.include_router(ticket_tags_router, dependencies=protected_dependencies)
+    application.include_router(analytics_router, dependencies=protected_dependencies)
 
     return application
 

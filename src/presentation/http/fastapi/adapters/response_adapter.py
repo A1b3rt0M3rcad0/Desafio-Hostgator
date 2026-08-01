@@ -14,6 +14,13 @@ def adapt_response(response: Response) -> FastAPIResponse:
             status_code=response.status_code,
             headers=headers,
         )
+    elif isinstance(response.body, (bytes, bytearray, memoryview)):
+        adapted = FastAPIResponse(
+            status_code=response.status_code,
+            content=bytes(response.body),
+            headers=headers,
+            media_type=headers.get("Content-Type"),
+        )
     else:
         adapted = JSONResponse(
             status_code=response.status_code,
