@@ -40,6 +40,35 @@ class DataExportField(str, Enum):
     SATISFACTION_RATING = "satisfaction_rating"
 
 
+ESSENTIAL_DATA_EXPORT_FIELDS: tuple[DataExportField, ...] = (
+    DataExportField.TICKET_ID,
+    DataExportField.SUBJECT,
+    DataExportField.STATUS,
+    DataExportField.PRIORITY,
+    DataExportField.REQUESTER_NAME,
+    DataExportField.ASSIGNEE_NAME,
+    DataExportField.CREATED_AT,
+    DataExportField.FIRST_RESPONSE_AT,
+    DataExportField.TAGS,
+    DataExportField.SATISFACTION_RATING,
+)
+
+SERVICE_DATA_EXPORT_FIELDS: tuple[DataExportField, ...] = (
+    DataExportField.TICKET_ID,
+    DataExportField.SUBJECT,
+    DataExportField.DESCRIPTION,
+    DataExportField.STATUS,
+    DataExportField.PRIORITY,
+    DataExportField.REQUESTER_NAME,
+    DataExportField.REQUESTER_EMAIL,
+    DataExportField.ASSIGNEE_NAME,
+    DataExportField.CREATED_AT,
+    DataExportField.UPDATED_AT,
+    DataExportField.FIRST_RESPONSE_AT,
+    DataExportField.TAGS,
+    DataExportField.SATISFACTION_RATING,
+)
+
 DEFAULT_DATA_EXPORT_FIELDS: tuple[DataExportField, ...] = tuple(DataExportField)
 DEFAULT_METRICS: tuple[MetricCode, ...] = tuple(MetricCode)
 RESOLVED_STATUSES: tuple[str, ...] = ("SOLVED", "CLOSED")
