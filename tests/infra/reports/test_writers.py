@@ -14,7 +14,7 @@ def test_csv_writer_serializes_nested_values_and_blocks_formulas() -> None:
     content = CsvReportWriter().write(
         [{"subject": "=SUM(1,1)", "tags": ["login", "portal"]}],
         ["subject", "tags"],
-        "RAW",
+        "Tickets",
     )
     rows = list(csv.DictReader(io.StringIO(content.decode("utf-8-sig"))))
     assert rows[0]["subject"] == "'=SUM(1,1)"
@@ -25,7 +25,7 @@ def test_xlsx_writer_produces_valid_openxml_archive() -> None:
     content = XlsxReportWriter().write(
         [{"ticket_id": 100001, "subject": "Ticket válido"}],
         ["ticket_id", "subject"],
-        "RAW",
+        "Tickets",
     )
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         assert "[Content_Types].xml" in archive.namelist()
