@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generate the static ticket source consumed by the infrastructure worker.
 
-The complete generator remains in ``mock/generate_tickets_mock.py``. This entrypoint
-fixes the challenge fixture at 1 August 2026, prevents future timestamps and writes
-``data/tickets.json`` with 10,000 deterministic records.
+The complete scenario catalog remains in ``mock/generate_tickets_mock.py``. This
+entrypoint fixes the challenge fixture at 1 August 2026, prevents future timestamps
+and writes ``data/tickets.json`` with 10,000 deterministic records distributed over
+the preceding two years. The historical range keeps 7, 30 and 90-day dashboard
+windows useful at the start of August.
 """
 
 from __future__ import annotations
