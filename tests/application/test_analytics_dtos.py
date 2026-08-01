@@ -1,10 +1,18 @@
+import asyncio
+
 import pytest
 from pydantic import ValidationError
 
 from src.application.dtos.analytics import AnalyticsFilters
 from src.application.dtos.exports import DataExportInput, MetricsExportInput
+from src.application.use_cases.exports import GetExportCatalog
 from src.domain.analytics import DataExportField, MetricCode, ReportFormat
 from src.domain.entities import TicketPriority, TicketStatus
+
+
+class _CatalogRepository:
+    async def get_filter_options(self) -> dict[str, list[dict[str, object]]]:
+        return {"tags": [], "customers": [], "assignees": []}
 
 
 def test_analytics_filters_normalize_comma_separated_values() -> None:
@@ -51,3 +59,32 @@ def test_export_filters_preserve_same_analytics_contract() -> None:
     assert data_export.filters.priorities == [TicketPriority.URGENT]
     assert data_export.filters.requester_emails == ["cliente@exemplo.com"]
     assert data_export.fields == [DataExportField.TICKET_ID, DataExportField.STATUS]
+
+
+def test_export_catalog_exposes_guided_defaults_and_field_presets() -> None:
+    catalog = asyncio.run(GetExportCatalog(_CatalogRepository()).execute())
+
+    assert catalog["defaults"] == {
+        "data_format": "csv",
+        "metrics_format": "xlsx",
+        "period_days": 30,
+        "field_preset": "essential",
+        "scope": "overall",
+        "metrics": [metric.value for metric in MetricCode],
+    }
+
+    presets = {item["code"]: item for item in catalog["field_presets"]}
+    assert set(presets) == {"essential", "service", "complete"}
+    assert presets["essential"]["fields"] == [
+        "ticket_id",
+        "subject",
+        "status",
+        "priority",
+        "requester_name",
+        "assignee_name",
+        "created_at",
+        "first_response_at",
+        "tags",
+        "satisfaction_rating",
+    ]
+    assert presets["complete"]["fields"] == [field.value for field in DataExportField]
