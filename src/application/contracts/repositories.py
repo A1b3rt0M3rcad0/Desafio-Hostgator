@@ -108,15 +108,7 @@ class TicketRepository(Repository[TicketEntity]):
     ) -> IngestionControlState: ...
 
     @abstractmethod
-    async def mark_ingestion_processing(self) -> None: ...
-
-    @abstractmethod
-    async def complete_ingestion_cycle(
-        self,
-        *,
-        next_cursor: int,
-        source_version: str,
-    ) -> None: ...
+    async def complete_ingestion_cycle(self, *, next_cursor: int) -> None: ...
 
     @abstractmethod
     async def register_ingestion_error(self, message: str) -> None: ...
