@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.application.contracts.reports import ReportWriter, ReportWriterFactory
 from src.application.dtos.analytics import AnalyticsFilters, CustomerMetricsInput
 
 
@@ -20,3 +21,10 @@ class AnalyticsQueryRepository(ABC):
         self,
         input_dto: CustomerMetricsInput,
     ) -> dict[str, Any]: ...
+
+
+__all__ = [
+    "AnalyticsQueryRepository",
+    "ReportWriter",
+    "ReportWriterFactory",
+]
