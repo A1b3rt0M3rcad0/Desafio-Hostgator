@@ -6,11 +6,8 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from data.generate_tickets_mock import generate_and_write_batch
+from src.infra.database.repositories import SqlAlchemyTicketRepository
 from src.infra.database.unit_of_work import UnitOfWork
-from src.infra.ingestion.repositories import (
-    SqlAlchemyIngestionControlRepository,
-    SqlAlchemyTicketIngestionRepository,
-)
 from src.infra.ingestion.source import JsonTicketSourceRepository
 from src.infra.workers.ticket_ingestion.settings import WorkerSettings
 
@@ -58,19 +55,18 @@ class TicketIngestionWorker:
 
     async def _is_enabled(self) -> bool:
         async with UnitOfWork(self._engine) as unit_of_work:
-            repository = SqlAlchemyIngestionControlRepository(unit_of_work)
-            control = await repository.get_worker_control()
+            repository = SqlAlchemyTicketRepository(unit_of_work)
+            control = await repository.get_ingestion_control()
             return control.enabled
 
     async def _process_cycle(self) -> None:
         async with UnitOfWork(self._engine) as unit_of_work:
-            control_repository = SqlAlchemyIngestionControlRepository(unit_of_work)
-            ingestion_repository = SqlAlchemyTicketIngestionRepository(unit_of_work)
-            control = await control_repository.get_worker_control(for_update=True)
+            repository = SqlAlchemyTicketRepository(unit_of_work)
+            control = await repository.get_ingestion_control(for_update=True)
             if not control.enabled:
                 return
 
-            await control_repository.mark_processing()
+            await repository.mark_ingestion_processing()
             generated_count = control.cursor_position
             cycle_number = generated_count // self._settings.batch_size
             start_ticket_id = self._settings.mock_start_ticket_id + generated_count
@@ -94,7 +90,7 @@ class TicketIngestionWorker:
                     f"Generated JSON contains {batch.invalid} invalid record(s)"
                 )
 
-            result = await ingestion_repository.synchronize_batch(
+            result = await repository.synchronize_batch(
                 batch.records,
                 received=batch.consumed,
             )
@@ -105,10 +101,9 @@ class TicketIngestionWorker:
                 )
 
             next_cursor = generated_count + batch.consumed
-            await control_repository.complete_batch(
+            await repository.complete_ingestion_cycle(
                 next_cursor=next_cursor,
                 source_version=digest,
-                exhausted=False,
             )
 
             LOGGER.info(
@@ -129,8 +124,10 @@ class TicketIngestionWorker:
     async def _register_error(self, error: Exception) -> None:
         try:
             async with UnitOfWork(self._engine) as unit_of_work:
-                repository = SqlAlchemyIngestionControlRepository(unit_of_work)
-                await repository.register_error(str(error) or error.__class__.__name__)
+                repository = SqlAlchemyTicketRepository(unit_of_work)
+                await repository.register_ingestion_error(
+                    str(error) or error.__class__.__name__
+                )
         except Exception:
             LOGGER.exception("ticket_ingestion.worker.error_state_failed")
 
