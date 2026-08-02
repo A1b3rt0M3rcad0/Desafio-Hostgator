@@ -5,7 +5,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.domain.entities import SatisfactionScore, TicketPriority, TicketStatus
+from src.domain.entities import (
+    CustomerEntity,
+    SatisfactionScore,
+    TicketEntity,
+    TicketPriority,
+    TicketStatus,
+)
 
 
 class SatisfactionSourceRecord(BaseModel):
@@ -53,13 +59,14 @@ class TicketSourceRecord(BaseModel):
         return sorted({item.strip() for item in value if item and item.strip()})
 
 
-class BatchIngestionResult(BaseModel):
-    received: int
-    customers_created: int = 0
-    customers_updated: int = 0
-    created: int
-    updated: int
-    unchanged: int
-    unmatched: int
-    conflicted: int
-    invalid: int = 0
+class CustomerSourceResult(BaseModel):
+    customer: CustomerEntity
+    created: bool = False
+    updated: bool = False
+
+
+class TicketSourceResult(BaseModel):
+    ticket: TicketEntity
+    created: bool = False
+    updated: bool = False
+    unchanged: bool = False
