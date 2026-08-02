@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 from src.application.dtos.ingestion_control import (
-    GetIngestionControlInput,
     GetIngestionControlOutput,
     UpdateIngestionControlInput,
     UpdateIngestionControlOutput,
@@ -10,10 +9,7 @@ from src.application.dtos.ingestion_control import (
 
 class GetIngestionControl(ABC):
     @abstractmethod
-    async def execute(
-        self,
-        input_dto: GetIngestionControlInput,
-    ) -> GetIngestionControlOutput: ...
+    async def execute(self) -> GetIngestionControlOutput: ...
 
 
 class UpdateIngestionControl(ABC):
