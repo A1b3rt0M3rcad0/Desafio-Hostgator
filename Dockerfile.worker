@@ -19,4 +19,4 @@ RUN useradd --create-home --uid 10002 worker \
 
 USER worker
 
-CMD ["python", "-m", "src.infra.workers.ticket_ingestion.main"]
+CMD ["python", "-m", "src.infra.workers.ticket_ingestion_worker"]
