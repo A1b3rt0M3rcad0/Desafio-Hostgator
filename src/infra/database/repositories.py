@@ -706,7 +706,7 @@ class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):
         await self._session.flush()
 
     async def delete(self, entity_id: UUID) -> None:
-        orm = await self._session.get(TicketTag, entity.id)
+        orm = await self._session.get(TicketTag, entity_id)
         if not orm:
             return
         await self._session.delete(orm)
