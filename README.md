@@ -1,6 +1,6 @@
 # Desafio HostGator
 
-Aplicação web para gerenciar clientes monitorados, consumir um histórico estático de tickets de HelpDesk, persistir as relações no MySQL e calcular métricas comportamentais de atendimento.
+Aplicação web para gerenciar clientes, simular respostas de uma plataforma de HelpDesk, persistir as relações no MySQL e calcular métricas comportamentais de atendimento.
 
 ## Inicialização local
 
@@ -28,51 +28,41 @@ A inicialização segue:
 ```text
 db
   -> migrations
-  -> mock-data gera data/tickets.json
-  -> seed cadastra os clientes canônicos
   -> api + worker
   -> web
 ```
 
-`mock-data`, `migrations` e `seed` são serviços one-shot. O estado `Exited (0)` é esperado depois da conclusão.
+Somente `migrations` é um serviço one-shot. O estado `Exited (0)` é esperado depois da conclusão das migrations.
 
-## Fonte estática de tickets
+## Fonte simulada de tickets
 
-O desafio exige o consumo de um JSON estático que simula o retorno de uma plataforma de HelpDesk. O projeto mantém essa separação:
+O projeto preserva o JSON como formato de integração com o HelpDesk, mas cada execução do worker representa uma nova consulta à origem simulada.
 
 ```text
-data/generate_tickets_mock.py
-    -> produz data/tickets.json
-    -> encerra
-
 worker
-    -> consome o JSON já produzido
-    -> não gera conteúdo
+  -> chama data/generate_tickets_mock.py
+  -> o gerador produz 30 registros
+  -> substitui data/tickets.json atomicamente
+  -> o worker lê os 30 registros do JSON
+  -> repositories persistem clientes, tickets e relações
+  -> aguarda o intervalo configurado
+  -> repete
 ```
 
-O fixture local padrão contém:
+O arquivo `data/tickets.json` contém apenas o snapshot da rodada atual e é ignorado pelo Git.
 
-- 30 clientes canônicos em `data/customers_seed.json`;
-- 10 tickets por cliente;
-- 300 tickets no total;
-- dados exclusivamente de 2026;
-- múltiplos status, prioridades, tags, atendentes e avaliações.
+O gerador possui uma base determinística de 500 clientes por padrão. Cada rodada seleciona 30 clientes dessa base e produz tickets com:
 
-O arquivo `data/tickets.json` é gerado na inicialização e ignorado pelo Git. A geração manual é:
+- cliente e identificador externo;
+- assunto e descrição;
+- status e prioridade;
+- atendente;
+- primeira resposta;
+- tags;
+- satisfação;
+- datas da origem.
 
-```bash
-python data/generate_tickets_mock.py --pretty
-```
-
-As identidades presentes nos tickets são derivadas do mesmo catálogo usado no seed local. Portanto, o e-mail e o identificador externo do solicitante correspondem aos registros da tabela `customers`.
-
-Em ambientes que já possuam uma base real de clientes, desative o seed:
-
-```env
-DEMO_SEED_ENABLED=false
-```
-
-A fonte estática usada nesse ambiente deverá conter os mesmos e-mails dos clientes monitorados.
+A escrita utiliza um arquivo temporário e substituição atômica, evitando que o worker leia conteúdo incompleto.
 
 ## Arquitetura
 
@@ -93,35 +83,42 @@ O worker é um processo de infraestrutura isolado:
 
 ```text
 worker container
+  -> gerador Python
+  -> snapshot JSON da rodada
   -> engine SQLAlchemy própria e singleton por processo
-  -> Unit of Work por lote
+  -> Unit of Work por rodada
   -> repositories concretos
   -> MySQL
 ```
 
-O worker não importa casos de uso, controllers, composers da API ou rotas HTTP.
+O worker não utiliza controllers, rotas HTTP, composers ou casos de uso da API.
 
 ## Ingestão automática
 
 Configuração padrão:
 
 ```env
+WORKER_SOURCE_PATH=/data/tickets.json
 WORKER_BATCH_SIZE=30
 WORKER_INTERVAL_SECONDS=30
 WORKER_CONTROL_POLL_SECONDS=2
-WORKER_SOURCE_PATH=/data/tickets.json
+MOCK_CUSTOMER_COUNT=500
+MOCK_START_TICKET_ID=100001
+MOCK_YEAR=2026
+MOCK_SEED=hostgator-challenge-v4
 ```
 
 Enquanto a ingestão estiver ligada, o worker:
 
-1. lê até 30 registros do JSON estático;
-2. normaliza os dados recebidos;
-3. localiza os clientes pelo e-mail;
-4. valida o `requester_id` externo;
-5. cria ou atualiza tickets de forma idempotente;
-6. sincroniza tags e avaliações;
-7. avança o cursor na mesma transação;
-8. aguarda 30 segundos.
+1. consulta o estado persistido da ingestão;
+2. chama o gerador para produzir exatamente 30 registros;
+3. sobrescreve `tickets.json` de forma atômica;
+4. lê e valida integralmente o JSON produzido;
+5. cria ou reutiliza os clientes pelo e-mail e pelo ID externo;
+6. cria ou atualiza tickets de forma idempotente;
+7. sincroniza tags e avaliações;
+8. atualiza o total gerado na mesma transação;
+9. aguarda 30 segundos e inicia outra rodada.
 
 A relação central é:
 
@@ -131,13 +128,13 @@ Ticket   N -------- N Tag
 Ticket   1 -------- 0..1 SatisfactionRating
 ```
 
-O e-mail é a referência principal do cruzamento. O identificador externo do solicitante funciona como validação adicional. O worker não cria clientes.
+Os campos de atendente e primeira resposta ficam no próprio ticket.
 
-Se um lote contiver cliente ausente, identidade conflitante ou registro inválido, a transação é revertida e o cursor não avança. O erro fica registrado em `ingestion_control.last_error`, evitando descarte silencioso.
+`ingestion_control.cursor_position` representa a quantidade total de registros gerados e persistidos. O próximo ID externo é calculado a partir desse valor. Se a transação falhar, o cursor não avança; na tentativa seguinte, o mesmo lote determinístico é produzido novamente.
 
-O fim do arquivo coloca o worker em `CAUGHT_UP`. Se o JSON for regenerado, sua versão muda, o cursor volta para zero e os tickets são reavaliados sem duplicidade por causa de `external_ticket_id` e `source_updated_at`.
+O JSON é sobrescrito mesmo que o banco mantenha todos os tickets anteriores. Assim, o arquivo representa somente o retorno atual da origem, enquanto o MySQL mantém o histórico acumulado.
 
-O dashboard expõe somente o controle funcional:
+O dashboard expõe o controle:
 
 ```text
 Ingestão automática [ligar/desligar]
@@ -162,7 +159,7 @@ PATCH  /customers/{customer_id}
 DELETE /customers/{customer_id}
 ```
 
-A tela de clientes permite cadastrar, listar, pesquisar, editar, visualizar e excluir registros. O e-mail é único no banco e é utilizado para associar os tickets da fonte externa.
+A ingestão também realiza upsert dos clientes presentes no retorno simulado do HelpDesk. O e-mail normalizado e o identificador externo protegem a identidade do cliente e permitem associar seus tickets.
 
 ## Dados persistidos
 
@@ -176,7 +173,7 @@ Tabelas principais:
 - `ingestion_control`;
 - `users` e `auth_sessions` para autenticação.
 
-Campos de atendente e primeira resposta ficam no próprio ticket, pois não possuem ciclo de vida independente no escopo do desafio.
+A antiga tabela de pendências de ingestão é removida pela migration `c3f5a7b9d210`.
 
 ## Dashboard e métricas
 
@@ -237,20 +234,26 @@ Telas implementadas:
 - exportação de dados e métricas;
 - páginas de erro.
 
-Não existe upload manual de JSON pelo frontend. A fonte é preparada pelo serviço `mock-data` e consumida exclusivamente pelo worker.
+Não existe upload manual de JSON pelo frontend. O snapshot é gerado e consumido pelo worker em cada rodada.
 
 ## Operação e diagnóstico
 
 ```bash
 docker compose ps -a
-docker compose logs migrations mock-data seed worker api web
+docker compose logs migrations worker api web
 docker compose logs -f worker
 ```
 
-Primeiro lote esperado após ligar a ingestão:
+Primeira rodada esperada após ligar a ingestão:
 
 ```text
-ticket_ingestion.batch.completed cursor=0 next_cursor=30 received=30 created=30
+ticket_ingestion.cycle.completed cycle=1 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100031
 ```
 
-A carga completa de 300 registros termina em aproximadamente cinco minutos.
+Rodada seguinte:
+
+```text
+ticket_ingestion.cycle.completed cycle=2 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100061
+```
+
+Depois que os 500 clientes da base já tiverem aparecido, novas rodadas reutilizam esses clientes e continuam adicionando 30 tickets a cada intervalo.
