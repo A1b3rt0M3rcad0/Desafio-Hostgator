@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from data.generate_tickets_mock import generate_and_write_batch
+from src.application.dtos.ticket_ingestion import TicketSourceRecord
 from src.infra.database.repositories import (
     SqlAlchemyCustomerRepository,
     SqlAlchemySatisfactionRatingRepository,
@@ -14,7 +17,6 @@ from src.infra.database.repositories import (
     SqlAlchemyTicketTagRepository,
 )
 from src.infra.database.unit_of_work import UnitOfWork
-from src.infra.ingestion.source import read_ticket_source
 from src.infra.workers.ticket_ingestion.settings import WorkerSettings
 
 LOGGER = logging.getLogger(__name__)
@@ -92,11 +94,21 @@ class TicketIngestionWorker:
                 year=self._settings.mock_year,
                 seed=self._settings.mock_seed,
             )
-            records = await asyncio.to_thread(
-                read_ticket_source,
-                self._settings.source_path,
-                expected_count=self._settings.batch_size,
+
+            source_path = Path(self._settings.source_path)
+            source_content = await asyncio.to_thread(
+                source_path.read_text,
+                encoding="utf-8",
             )
+            payload = json.loads(source_content)
+            if not isinstance(payload, list):
+                raise ValueError("tickets.json must contain a ticket array")
+            if len(payload) != self._settings.batch_size:
+                raise ValueError(
+                    f"tickets.json contains {len(payload)} records; "
+                    f"expected {self._settings.batch_size}"
+                )
+            records = [TicketSourceRecord.model_validate(item) for item in payload]
 
             customers_created = 0
             customers_updated = 0
