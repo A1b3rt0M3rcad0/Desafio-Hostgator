@@ -62,11 +62,9 @@ class TicketSourceRecord(BaseModel):
 class CustomerSourceResult(BaseModel):
     customer: CustomerEntity
     created: bool = False
-    updated: bool = False
 
 
 class TicketSourceResult(BaseModel):
     ticket: TicketEntity
     created: bool = False
-    updated: bool = False
     unchanged: bool = False
