@@ -81,11 +81,22 @@ class TicketIngestionWorker:
                 cursor,
                 self._settings.batch_size,
             )
+            if batch.invalid:
+                raise RuntimeError(
+                    f"Source batch contains {batch.invalid} invalid record(s) at cursor {cursor}"
+                )
+
             result = await ingestion_repository.synchronize_batch(
                 batch.records,
-                invalid=batch.invalid,
                 received=batch.consumed,
             )
+            if result.unmatched or result.conflicted:
+                raise RuntimeError(
+                    "Source/customer mismatch at cursor "
+                    f"{cursor}: unmatched={result.unmatched}, "
+                    f"conflicted={result.conflicted}"
+                )
+
             next_cursor = cursor + batch.consumed
             await control_repository.complete_batch(
                 next_cursor=next_cursor,
@@ -95,16 +106,14 @@ class TicketIngestionWorker:
 
             LOGGER.info(
                 "ticket_ingestion.batch.completed cursor=%s next_cursor=%s "
-                "received=%s created=%s updated=%s unchanged=%s unmatched=%s "
-                "conflicted=%s invalid=%s exhausted=%s",
+                "received=%s created=%s updated=%s unchanged=%s invalid=%s "
+                "exhausted=%s",
                 cursor,
                 next_cursor,
                 result.received,
                 result.created,
                 result.updated,
                 result.unchanged,
-                result.unmatched,
-                result.conflicted,
                 result.invalid,
                 batch.exhausted,
             )
