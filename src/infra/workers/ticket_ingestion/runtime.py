@@ -6,9 +6,15 @@ import logging
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from data.generate_tickets_mock import generate_and_write_batch
-from src.infra.database.repositories import SqlAlchemyTicketRepository
+from src.infra.database.repositories import (
+    SqlAlchemyCustomerRepository,
+    SqlAlchemySatisfactionRatingRepository,
+    SqlAlchemyTagRepository,
+    SqlAlchemyTicketRepository,
+    SqlAlchemyTicketTagRepository,
+)
 from src.infra.database.unit_of_work import UnitOfWork
-from src.infra.ingestion.source import JsonTicketSourceRepository
+from src.infra.ingestion.source import read_ticket_source
 from src.infra.workers.ticket_ingestion.settings import WorkerSettings
 
 LOGGER = logging.getLogger(__name__)
@@ -19,11 +25,9 @@ class TicketIngestionWorker:
         self,
         *,
         engine: AsyncEngine,
-        source_repository: JsonTicketSourceRepository,
         settings: WorkerSettings,
     ) -> None:
         self._engine = engine
-        self._source_repository = source_repository
         self._settings = settings
         self._shutdown = asyncio.Event()
 
@@ -61,12 +65,19 @@ class TicketIngestionWorker:
 
     async def _process_cycle(self) -> None:
         async with UnitOfWork(self._engine) as unit_of_work:
-            repository = SqlAlchemyTicketRepository(unit_of_work)
-            control = await repository.get_ingestion_control(for_update=True)
+            customer_repository = SqlAlchemyCustomerRepository(unit_of_work)
+            ticket_repository = SqlAlchemyTicketRepository(unit_of_work)
+            tag_repository = SqlAlchemyTagRepository(unit_of_work)
+            ticket_tag_repository = SqlAlchemyTicketTagRepository(unit_of_work)
+            satisfaction_repository = SqlAlchemySatisfactionRatingRepository(
+                unit_of_work
+            )
+
+            control = await ticket_repository.get_ingestion_control(for_update=True)
             if not control.enabled:
                 return
 
-            await repository.mark_ingestion_processing()
+            await ticket_repository.mark_ingestion_processing()
             generated_count = control.cursor_position
             cycle_number = generated_count // self._settings.batch_size
             start_ticket_id = self._settings.mock_start_ticket_id + generated_count
@@ -81,27 +92,57 @@ class TicketIngestionWorker:
                 year=self._settings.mock_year,
                 seed=self._settings.mock_seed,
             )
-            batch = await asyncio.to_thread(
-                self._source_repository.read_all,
+            records = await asyncio.to_thread(
+                read_ticket_source,
+                self._settings.source_path,
                 expected_count=self._settings.batch_size,
             )
-            if batch.invalid:
-                raise RuntimeError(
-                    f"Generated JSON contains {batch.invalid} invalid record(s)"
+
+            customers_created = 0
+            customers_updated = 0
+            tickets_created = 0
+            tickets_updated = 0
+            tickets_unchanged = 0
+
+            for record in records:
+                customer_result = await customer_repository.upsert_from_source(
+                    external_requester_id=record.requester_id,
+                    requester_name=record.requester_name,
+                    requester_email=record.requester_email,
+                )
+                customer_id = customer_result.customer.id
+                if customer_id is None:
+                    raise RuntimeError("Customer repository returned an empty ID")
+
+                ticket_result = await ticket_repository.upsert_from_source(
+                    record,
+                    customer_id=customer_id,
+                )
+                ticket_id = ticket_result.ticket.id
+                if ticket_id is None:
+                    raise RuntimeError("Ticket repository returned an empty ID")
+
+                customers_created += int(customer_result.created)
+                customers_updated += int(customer_result.updated)
+                tickets_created += int(ticket_result.created)
+                tickets_updated += int(ticket_result.updated)
+                tickets_unchanged += int(ticket_result.unchanged)
+
+                if ticket_result.unchanged:
+                    continue
+
+                tags = await tag_repository.resolve_by_names(record.tags)
+                await ticket_tag_repository.replace_for_ticket(
+                    ticket_id=ticket_id,
+                    tag_ids=[tag.id for tag in tags.values() if tag.id is not None],
+                )
+                await satisfaction_repository.synchronize_from_source(
+                    ticket_id=ticket_id,
+                    source=record.satisfaction_rating,
                 )
 
-            result = await repository.synchronize_batch(
-                batch.records,
-                received=batch.consumed,
-            )
-            if result.unmatched or result.conflicted:
-                raise RuntimeError(
-                    "Generated customer identity conflict: "
-                    f"unmatched={result.unmatched}, conflicted={result.conflicted}"
-                )
-
-            next_cursor = generated_count + batch.consumed
-            await repository.complete_ingestion_cycle(
+            next_cursor = generated_count + len(records)
+            await ticket_repository.complete_ingestion_cycle(
                 next_cursor=next_cursor,
                 source_version=digest,
             )
@@ -112,11 +153,11 @@ class TicketIngestionWorker:
                 "tickets_updated=%s unchanged=%s next_ticket_id=%s json_sha256=%s",
                 cycle_number + 1,
                 len(generated),
-                result.customers_created,
-                result.customers_updated,
-                result.created,
-                result.updated,
-                result.unchanged,
+                customers_created,
+                customers_updated,
+                tickets_created,
+                tickets_updated,
+                tickets_unchanged,
                 self._settings.mock_start_ticket_id + next_cursor,
                 digest,
             )
