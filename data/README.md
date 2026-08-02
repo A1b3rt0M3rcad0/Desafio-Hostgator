@@ -1,26 +1,63 @@
 # Dados simulados do HelpDesk
 
-Este diretório contém o catálogo canônico de clientes usado na demonstração local e o gerador do arquivo JSON estático consumido pelo worker.
+Este diretório contém o gerador importado pelo worker e o snapshot JSON da rodada atual.
 
 ```text
 data/
-├── customers_seed.json
 ├── generate_tickets_mock.py
-└── tickets.json              # gerado localmente; ignorado pelo Git
+└── tickets.json              # gerado em runtime; ignorado pelo Git
 ```
 
-## Fixture padrão
+## Funcionamento
 
-O comando padrão gera:
+Quando a ingestão automática está ligada, cada ciclo executa o seguinte fluxo:
 
-- 30 clientes canônicos;
-- 10 tickets por cliente;
-- 300 tickets no total;
-- IDs externos a partir de `100001`;
-- datas entre `2026-01-01T00:00:00Z` e `2026-08-01T05:30:00Z`;
-- múltiplos status, prioridades, tags, responsáveis e avaliações.
+```text
+worker
+  -> chama generate_and_write_batch(...)
+  -> gera 30 tickets para uma base padrão de 500 clientes
+  -> grava tickets.json.tmp
+  -> substitui tickets.json atomicamente
+  -> lê os 30 registros do JSON
+  -> persiste clientes, tickets, tags e avaliações
+  -> aguarda o intervalo configurado
+```
 
-As identidades do solicitante não são inventadas separadamente pelo gerador. Cada ticket copia exatamente `external_requester_id`, nome e e-mail de `customers_seed.json`, permitindo o cruzamento com a tabela `customers`.
+O arquivo `tickets.json` contém somente a rodada atual. Ele é sobrescrito no ciclo seguinte.
+
+O gerador é responsável por todo o conteúdo fictício:
+
+- identidade do cliente;
+- assunto e descrição do ticket;
+- status e prioridade;
+- atendente;
+- primeira resposta;
+- tags;
+- satisfação;
+- datas da origem.
+
+O worker não inventa esses valores. Ele chama o módulo, lê o JSON produzido e utiliza os repositories para separar e persistir as relações.
+
+## Valores padrão
+
+```env
+WORKER_BATCH_SIZE=30
+WORKER_INTERVAL_SECONDS=30
+MOCK_CUSTOMER_COUNT=500
+MOCK_START_TICKET_ID=100001
+MOCK_YEAR=2026
+MOCK_SEED=hostgator-challenge-v4
+```
+
+Os clientes possuem identidades determinísticas dentro do intervalo de IDs externos `40000–40499`. Cada rodada seleciona 30 clientes da base em sequência circular. Depois que a base inteira é percorrida, clientes anteriores voltam a receber tickets, permitindo métricas de recorrência.
+
+Os tickets recebem IDs externos novos em cada ciclo:
+
+```text
+rodada 1: 100001–100030
+rodada 2: 100031–100060
+rodada 3: 100061–100090
+```
 
 ## Geração manual
 
@@ -30,30 +67,16 @@ A partir da raiz do repositório:
 python data/generate_tickets_mock.py --pretty
 ```
 
-Outro ano pode ser selecionado:
+Exemplo configurado:
 
 ```bash
-python data/generate_tickets_mock.py --year 2025 --pretty
+python data/generate_tickets_mock.py \
+  --cycle 4 \
+  --start-id 100121 \
+  --count 30 \
+  --customers 500 \
+  --year 2026 \
+  --pretty
 ```
 
-Também é possível escolher uma âncora precisa:
-
-```bash
-python data/generate_tickets_mock.py --anchor 2026-07-15T12:00:00Z --pretty
-```
-
-O arquivo é validado antes da substituição e gravado de forma atômica em `data/tickets.json`.
-
-## Inicialização pelo Compose
-
-Em `docker compose up --build -d`, o serviço one-shot `mock-data` gera `data/tickets.json`. Em seguida, o serviço `seed` registra de forma idempotente os mesmos 30 clientes no banco local. Somente depois API e worker são iniciados.
-
-O worker monta `data/` como `/data` em modo somente leitura e processa um lote de até 30 registros a cada 30 segundos.
-
-Em um ambiente que já possua sua própria base de clientes, use:
-
-```env
-DEMO_SEED_ENABLED=false
-```
-
-Nesse caso, a fonte estática deve conter solicitantes compatíveis com os clientes realmente cadastrados.
+A escrita é atômica: o conteúdo é validado em `tickets.json.tmp`, sincronizado em disco e somente então substitui `tickets.json`.
