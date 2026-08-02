@@ -21,7 +21,7 @@ export function TicketsPage() {
   const rows = useMemo(() => (page.data?.items || []).filter((ticket) => `${ticket.subject} ${ticket.description} ${ticket.assignee_name || ''}`.toLowerCase().includes(search.toLowerCase())), [page.data, search]);
   if (page.loading) return <Spinner label="Carregando tickets" />;
   if (page.error) return <ErrorState error={page.error} onRetry={page.reload} />;
-  return <><PageHeader eyebrow="Dados" title="Tickets" description="Tickets coletados da fonte HelpDesk e associados aos clientes monitorados." /><div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Buscar assunto, descrição ou atendente" /></div><DataTable rows={rows} emptyTitle="Nenhum ticket encontrado" columns={[
+  return <><PageHeader eyebrow="Dados" title="Tickets" description="Tickets coletados da fonte HelpDesk e associados aos clientes identificados na ingestão." /><div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Buscar assunto, descrição ou atendente" /></div><DataTable rows={rows} emptyTitle="Nenhum ticket encontrado" columns={[
     { key: 'external_ticket_id', label: 'Ticket' },
     { key: 'subject', label: 'Assunto' },
     { key: 'status', label: 'Status', render: (row) => <Badge value={row.status} /> },
@@ -130,13 +130,13 @@ export function CustomersPage() {
     <PageHeader
       eyebrow="Dados"
       title="Clientes"
-      description="Gerencie os clientes monitorados. O e-mail é a referência usada para cruzar os tickets da fonte HelpDesk."
+      description="Gerencie os clientes. A ingestão cria ou reutiliza registros pelo e-mail e pelo ID externo recebidos do HelpDesk."
       action={<button className="button button-primary" type="button" onClick={openCreate}>Novo cliente</button>}
     />
 
     {formOpen && <section className="panel customer-form-panel" aria-label={editing ? 'Editar cliente' : 'Novo cliente'}>
       <div className="panel-header">
-        <div><h2>{editing ? 'Editar cliente' : 'Cadastrar cliente'}</h2><p>{editing ? 'Atualize os dados usados no cruzamento.' : 'Inclua um cliente que deverá ser monitorado.'}</p></div>
+        <div><h2>{editing ? 'Editar cliente' : 'Cadastrar cliente'}</h2><p>{editing ? 'Atualize os dados usados no cruzamento.' : 'Inclua manualmente um cliente na base.'}</p></div>
       </div>
       <form className="customer-form" onSubmit={submitCustomer}>
         <label><span>ID externo</span><input type="number" min="1" required value={form.external_requester_id} onChange={(event) => updateField('external_requester_id', event.target.value)} /></label>
