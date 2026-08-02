@@ -58,19 +58,12 @@ class IngestionControl(Base):
     cursor_position: Mapped[int] = mapped_column(
         BigInteger(), nullable=False, default=0, server_default="0"
     )
-    source_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     worker_state: Mapped[str] = mapped_column(
         String(32), nullable=False, default="DISABLED", server_default="DISABLED"
     )
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text(), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(), server_default=func.now(), nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(), server_default=func.now(), onupdate=func.now(), nullable=False
-    )
 
 
 class User(BaseModel):
