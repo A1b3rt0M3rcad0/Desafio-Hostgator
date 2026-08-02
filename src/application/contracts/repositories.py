@@ -3,6 +3,11 @@ from typing import Generic, TypeVar
 from uuid import UUID
 
 from src.application.dtos.cursor_page import CursorPage
+from src.application.dtos.ingestion_control import IngestionControlState
+from src.application.dtos.ticket_ingestion import (
+    BatchIngestionResult,
+    TicketSourceRecord,
+)
 from src.domain.entities import (
     AuthSessionEntity,
     CustomerEntity,
@@ -63,12 +68,49 @@ class CustomerRepository(Repository[CustomerEntity]): ...
 
 
 class TicketRepository(Repository[TicketEntity]):
+    @abstractmethod
     async def page_by_tag_ids(
         self,
         tag_ids: list[UUID],
         cursor: str | None = None,
         page_size: int = 20,
     ) -> CursorPage[TicketEntity]: ...
+
+    @abstractmethod
+    async def synchronize_batch(
+        self,
+        records: list[TicketSourceRecord],
+        *,
+        invalid: int = 0,
+        received: int | None = None,
+    ) -> BatchIngestionResult: ...
+
+    @abstractmethod
+    async def get_ingestion_control(
+        self,
+        *,
+        for_update: bool = False,
+    ) -> IngestionControlState: ...
+
+    @abstractmethod
+    async def set_ingestion_enabled(
+        self,
+        enabled: bool,
+    ) -> IngestionControlState: ...
+
+    @abstractmethod
+    async def mark_ingestion_processing(self) -> None: ...
+
+    @abstractmethod
+    async def complete_ingestion_cycle(
+        self,
+        *,
+        next_cursor: int,
+        source_version: str,
+    ) -> None: ...
+
+    @abstractmethod
+    async def register_ingestion_error(self, message: str) -> None: ...
 
 
 class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]): ...
@@ -78,6 +120,7 @@ class TagRepository(Repository[TagEntity]): ...
 
 
 class TicketTagRepository(Repository[TicketTagEntity]):
+    @abstractmethod
     async def delete_by_ticket_and_tag(
         self,
         ticket_id: UUID,
