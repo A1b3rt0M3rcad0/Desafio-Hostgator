@@ -1,7 +1,7 @@
 # Docker Compose automatically loads variables from the root .env file.
 # First local startup:
 #   cp .env.example .env
-#   docker compose up --build
+#   docker compose up --build -d
 services:
   db:
     image: mysql:8.0
@@ -33,6 +33,41 @@ services:
       db:
         condition: service_healthy
 
+  mock-data:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrations
+    command:
+      - uv
+      - run
+      - python
+      - data/generate_tickets_mock.py
+      - --year
+      - "${MOCK_YEAR:-2026}"
+    volumes:
+      - ./data:/app/data
+    restart: "no"
+
+  seed:
+    build:
+      context: .
+      dockerfile: Dockerfile.migrations
+    command:
+      - uv
+      - run
+      - python
+      - scripts/seed_demo_customers.py
+    environment:
+      MYSQL_URL_CONNECTION_SEED: "${MYSQL_URL_CONNECTION_MIGRATIONS:?Set MYSQL_URL_CONNECTION_MIGRATIONS in .env}"
+      DEMO_SEED_ENABLED: "${DEMO_SEED_ENABLED:-true}"
+      DEMO_CUSTOMERS_PATH: /app/data/customers_seed.json
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      mock-data:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     build:
       context: .
@@ -60,7 +95,7 @@ services:
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     depends_on:
-      migrations:
+      seed:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -82,13 +117,15 @@ services:
     environment:
       MYSQL_URL_CONNECTION_WORKER: "${MYSQL_URL_CONNECTION_WORKER:?Set MYSQL_URL_CONNECTION_WORKER in .env}"
       WORKER_SOURCE_PATH: "${WORKER_SOURCE_PATH:-/data/tickets.json}"
-      WORKER_BATCH_SIZE: "${WORKER_BATCH_SIZE:-25}"
+      WORKER_BATCH_SIZE: "${WORKER_BATCH_SIZE:-30}"
       WORKER_INTERVAL_SECONDS: "${WORKER_INTERVAL_SECONDS:-30}"
       WORKER_CONTROL_POLL_SECONDS: "${WORKER_CONTROL_POLL_SECONDS:-2}"
     volumes:
       - ./data:/data:ro
     depends_on:
-      migrations:
+      seed:
+        condition: service_completed_successfully
+      mock-data:
         condition: service_completed_successfully
     restart: unless-stopped
 
