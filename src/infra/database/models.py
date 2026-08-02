@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 from uuid import UUID, uuid7
 
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -85,6 +87,34 @@ class IngestionControl(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+
+class IngestionPendingTicket(BaseModel):
+    __tablename__ = "ingestion_pending_tickets"
+    __table_args__ = (
+        UniqueConstraint(
+            "external_ticket_id",
+            name="uq_ingestion_pending_tickets_external_ticket_id",
+        ),
+    )
+
+    external_ticket_id: Mapped[int] = mapped_column(BigInteger(), nullable=False)
+    requester_external_id: Mapped[int] = mapped_column(
+        BigInteger(), index=True, nullable=False
+    )
+    requester_email: Mapped[str] = mapped_column(
+        String(255), index=True, nullable=False
+    )
+    source_version: Mapped[str] = mapped_column(String(255), nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_payload: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False)
+    attempt_count: Mapped[int] = mapped_column(
+        Integer(),
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
 
 
 class User(BaseModel):
