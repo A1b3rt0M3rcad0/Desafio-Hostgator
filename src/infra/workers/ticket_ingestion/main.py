@@ -4,7 +4,6 @@ import asyncio
 import logging
 import signal
 
-from src.infra.ingestion.source import JsonTicketSourceRepository
 from src.infra.workers.ticket_ingestion.engine import get_worker_engine
 from src.infra.workers.ticket_ingestion.runtime import TicketIngestionWorker
 from src.infra.workers.ticket_ingestion.settings import WorkerSettings
@@ -17,11 +16,7 @@ async def async_main() -> None:
     )
     settings = WorkerSettings.from_env()
     engine = get_worker_engine(settings)
-    worker = TicketIngestionWorker(
-        engine=engine,
-        source_repository=JsonTicketSourceRepository(settings.source_path),
-        settings=settings,
-    )
+    worker = TicketIngestionWorker(engine=engine, settings=settings)
 
     loop = asyncio.get_running_loop()
     for signal_name in (signal.SIGINT, signal.SIGTERM):
