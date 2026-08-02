@@ -18,7 +18,7 @@ class DefaultReportWriterFactory(ReportWriterFactory):
         self,
         writers: Mapping[ReportFormat, type[ReportWriter]] | None = None,
     ) -> None:
-        self._writers = dict(writers or _DEFAULT_WRITERS)
+        self._writers = dict(_DEFAULT_WRITERS if writers is None else writers)
 
     def create(self, report_format: ReportFormat) -> ReportWriter:
         try:
