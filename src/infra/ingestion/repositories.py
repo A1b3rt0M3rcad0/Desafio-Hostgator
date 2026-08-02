@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.ingestion_control import IngestionControlRepository
@@ -10,7 +10,6 @@ from src.application.dtos.ingestion_control import IngestionControlState
 from src.infra.database.models import (
     Customer,
     IngestionControl,
-    IngestionPendingTicket,
     SatisfactionRating,
     Tag,
     Ticket,
@@ -38,8 +37,7 @@ class SqlAlchemyIngestionControlRepository(
     IngestionControlRepository,
 ):
     async def get(self) -> IngestionControlState:
-        control = await self._get_model()
-        return self._to_public_state(control)
+        return self._to_public_state(await self._get_model())
 
     async def set_enabled(self, enabled: bool) -> IngestionControlState:
         control = await self._get_model(for_update=True)
@@ -80,14 +78,6 @@ class SqlAlchemyIngestionControlRepository(
         control.last_error = None
         await self._session.flush()
 
-    async def complete_pending_batch(self) -> None:
-        control = await self._get_model(for_update=True)
-        control.worker_state = "IDLE"
-        control.last_heartbeat_at = self._now()
-        control.last_success_at = self._now()
-        control.last_error = None
-        await self._session.flush()
-
     async def register_error(self, message: str) -> None:
         control = await self._get_model(for_update=True)
         control.worker_state = "ERROR"
@@ -107,8 +97,7 @@ class SqlAlchemyIngestionControlRepository(
         statement = select(IngestionControl).where(IngestionControl.id == 1)
         if for_update:
             statement = statement.with_for_update()
-        result = await self._session.execute(statement)
-        control = result.scalar_one_or_none()
+        control = (await self._session.execute(statement)).scalar_one_or_none()
         if control is None:
             control = IngestionControl(id=1)
             self._session.add(control)
@@ -132,67 +121,28 @@ class SqlAlchemyIngestionControlRepository(
 
 
 class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
-    async def load_resolvable_pending(self, limit: int) -> list[TicketSourceRecord]:
-        statement = (
-            select(IngestionPendingTicket)
-            .join(
-                Customer,
-                and_(
-                    func.lower(Customer.requester_email)
-                    == IngestionPendingTicket.requester_email,
-                    Customer.external_requester_id
-                    == IngestionPendingTicket.requester_external_id,
-                ),
-            )
-            .order_by(
-                IngestionPendingTicket.created_at,
-                IngestionPendingTicket.external_ticket_id,
-            )
-            .limit(limit)
-            .with_for_update()
-        )
-        pending = (await self._session.execute(statement)).scalars().all()
-        now = self._now()
-        records: list[TicketSourceRecord] = []
-        for item in pending:
-            item.attempt_count += 1
-            item.last_attempt_at = now
-            records.append(TicketSourceRecord.model_validate(item.source_payload))
-        if pending:
-            await self._session.flush()
-        return records
-
     async def synchronize_batch(
         self,
         records: list[TicketSourceRecord],
         *,
-        source_version: str,
         invalid: int = 0,
         received: int | None = None,
-        queue_unresolved: bool = True,
-        recovered: bool = False,
     ) -> BatchIngestionResult:
         deduplicated = self._deduplicate(records)
         customers = await self._resolve_customers(deduplicated)
 
         matched: list[tuple[TicketSourceRecord, Customer]] = []
-        unresolved: list[tuple[TicketSourceRecord, str]] = []
         unmatched = 0
         conflicted = 0
         for record in deduplicated:
             customer = customers.get(record.requester_email)
             if customer is None:
                 unmatched += 1
-                unresolved.append((record, "UNMATCHED"))
                 continue
             if customer.external_requester_id != record.requester_id:
                 conflicted += 1
-                unresolved.append((record, "CONFLICTED"))
                 continue
             matched.append((record, customer))
-
-        if queue_unresolved and unresolved:
-            await self._upsert_pending(unresolved, source_version)
 
         external_ids = [record.ticket_id for record, _ in matched]
         existing_tickets: list[Ticket] = []
@@ -247,8 +197,6 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
             await self._replace_tags(changed, tags)
             await self._replace_satisfaction(changed)
             await self._session.flush()
-        if external_ids:
-            await self._delete_pending(external_ids)
 
         return BatchIngestionResult(
             received=received if received is not None else len(records) + invalid,
@@ -258,55 +206,6 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
             unmatched=unmatched,
             conflicted=conflicted,
             invalid=invalid,
-            queued=len(unresolved) if queue_unresolved else 0,
-            recovered=len(matched) if recovered else 0,
-        )
-
-    async def _upsert_pending(
-        self,
-        unresolved: list[tuple[TicketSourceRecord, str]],
-        source_version: str,
-    ) -> None:
-        external_ids = [record.ticket_id for record, _ in unresolved]
-        existing = (
-            await self._session.execute(
-                select(IngestionPendingTicket).where(
-                    IngestionPendingTicket.external_ticket_id.in_(external_ids)
-                )
-            )
-        ).scalars().all()
-        by_external_id = {item.external_ticket_id: item for item in existing}
-        now = self._now()
-
-        for record, reason in unresolved:
-            values = {
-                "requester_external_id": record.requester_id,
-                "requester_email": record.requester_email,
-                "source_version": source_version,
-                "reason": reason,
-                "source_payload": record.model_dump(mode="json"),
-                "last_attempt_at": now,
-            }
-            current = by_external_id.get(record.ticket_id)
-            if current is None:
-                current = IngestionPendingTicket(
-                    external_ticket_id=record.ticket_id,
-                    attempt_count=1,
-                    **values,
-                )
-                self._session.add(current)
-                by_external_id[record.ticket_id] = current
-            else:
-                for key, value in values.items():
-                    setattr(current, key, value)
-                current.attempt_count += 1
-        await self._session.flush()
-
-    async def _delete_pending(self, external_ids: list[int]) -> None:
-        await self._session.execute(
-            delete(IngestionPendingTicket).where(
-                IngestionPendingTicket.external_ticket_id.in_(external_ids)
-            )
         )
 
     async def _resolve_customers(
@@ -316,12 +215,15 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
         emails = {record.requester_email for record in records}
         if not emails:
             return {}
-        existing = (
+        customers = (
             await self._session.execute(
                 select(Customer).where(func.lower(Customer.requester_email).in_(emails))
             )
         ).scalars().all()
-        return {customer.requester_email.strip().lower(): customer for customer in existing}
+        return {
+            customer.requester_email.strip().lower(): customer
+            for customer in customers
+        }
 
     async def _resolve_tags(
         self,
@@ -386,9 +288,7 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
                 "comment": imported.comment,
             }
             if current is None:
-                self._session.add(
-                    SatisfactionRating(ticket_id=ticket.id, **values)
-                )
+                self._session.add(SatisfactionRating(ticket_id=ticket.id, **values))
             else:
                 for key, value in values.items():
                     setattr(current, key, value)
@@ -401,10 +301,6 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
             if current is None or record.updated_at >= current.updated_at:
                 latest[record.ticket_id] = record
         return [latest[ticket_id] for ticket_id in sorted(latest)]
-
-    @staticmethod
-    def _now() -> datetime:
-        return datetime.now(timezone.utc).replace(tzinfo=None)
 
     @staticmethod
     def _naive_utc(value: datetime | None) -> datetime | None:
