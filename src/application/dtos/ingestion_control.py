@@ -12,10 +12,6 @@ class IngestionControlState(BaseModel):
     last_error: str | None = None
 
 
-class GetIngestionControlInput(BaseModel):
-    pass
-
-
 class GetIngestionControlOutput(BaseModel):
     control: IngestionControlState
 
