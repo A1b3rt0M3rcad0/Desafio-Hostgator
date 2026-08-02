@@ -86,7 +86,7 @@ WORKER_CONTROL_POLL_SECONDS=2
 WORKER_SOURCE_PATH=/data/tickets.json
 ```
 
-Enquanto a ingestão estiver ligada, o worker processa exatamente um lote de até 25 registros e aguarda 30 segundos antes do próximo lote. O cursor é persistido na mesma transação dos tickets, tags e avaliações processados.
+Enquanto a ingestão estiver ligada, o worker processa exatamente um lote de até 25 registros e aguarda 30 segundos antes do próximo lote. O cursor é persistido na mesma transação dos tickets, tags, avaliações e pendências processadas.
 
 O JSON é lido incrementalmente. O worker aceita tanto uma lista no nível raiz quanto um objeto com a propriedade `tickets`:
 
@@ -106,7 +106,11 @@ ou:
 }
 ```
 
-A associação utiliza `requester_email` para localizar clientes previamente cadastrados. O worker não cria clientes automaticamente. Tickets sem cliente correspondente ou com conflito entre e-mail e identificador externo são ignorados e contabilizados nos logs.
+A associação utiliza `requester_email` e `requester_id` para localizar clientes previamente cadastrados. O worker não cria clientes automaticamente. Registros sem cliente correspondente ou com conflito de identidade são persistidos em `ingestion_pending_tickets`, juntamente com o payload original e a versão da fonte.
+
+Em cada ciclo, o worker procura primeiro até 25 pendências cujo cliente agora exista. Quando encontra, processa essas pendências sem avançar o cursor do JSON e remove as linhas recuperadas na mesma transação. Quando não há pendências recuperáveis, processa o próximo lote da fonte normalmente. Assim, o cursor pode continuar avançando sem perder tickets que dependem de um cadastro posterior de cliente.
+
+A migration que introduz a fila zera o cursor uma única vez para recuperar registros que possam ter sido consumidos antes desse mecanismo existir. Tickets já persistidos não são duplicados, pois a sincronização é idempotente por `external_ticket_id` e `source_updated_at`.
 
 O dashboard exibe apenas um botão para ligar ou desligar a ingestão automática. As configurações de lote e intervalo permanecem no ambiente.
 
