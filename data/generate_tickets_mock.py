@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate the static HelpDesk fixture consumed by the ingestion worker.
+"""Generate the static HelpDesk JSON consumed by the ingestion worker.
 
-The default command writes ``data/tickets.json`` with 10,000 deterministic
-records. Every generated timestamp belongs to the selected year and is bounded
-by the anchor. The default dataset uses 2026 and is anchored on 1 August 2026.
+The fixture is built from a canonical customer snapshot. The default command
+creates 300 deterministic tickets (10 per customer), all dated in 2026, and
+writes them to ``data/tickets.json``.
 """
 
 from __future__ import annotations
@@ -13,20 +13,19 @@ import hashlib
 import hmac
 import json
 import random
-import re
 import sys
-import unicodedata
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Final
 
-GENERATOR_VERSION: Final[int] = 2
+GENERATOR_VERSION: Final[int] = 3
 DEFAULT_YEAR: Final[int] = 2026
-DEFAULT_COUNT: Final[int] = 10_000
-DEFAULT_CUSTOMERS: Final[int] = 500
+DEFAULT_TICKETS_PER_CUSTOMER: Final[int] = 10
 DEFAULT_START_ID: Final[int] = 100_001
-DEFAULT_OUTPUT: Final[Path] = Path(__file__).with_name("tickets.json")
+DATA_DIR: Final[Path] = Path(__file__).resolve().parent
+DEFAULT_CUSTOMERS_FILE: Final[Path] = DATA_DIR / "customers_seed.json"
+DEFAULT_OUTPUT: Final[Path] = DATA_DIR / "tickets.json"
 
 STATUSES: Final[tuple[str, ...]] = ("new", "open", "pending", "hold", "solved", "closed")
 PRIORITIES: Final[tuple[str, ...]] = ("urgent", "high", "normal", "low")
@@ -45,7 +44,7 @@ AGENTS: Final[dict[str, tuple[int, str]]] = {
     "performance": (9110, "André Lima (Servidores e Performance)"),
 }
 
-SCENARIOS: Final[list[tuple[str, str, tuple[str, ...]]]] = [
+SCENARIOS: Final[tuple[tuple[str, str, tuple[str, ...]], ...]] = (
     ("Falha de login", "n1", ("login", "autenticacao")),
     ("Redefinição de senha", "n1", ("senha", "token-expirado")),
     ("Conta bloqueada", "security", ("conta-bloqueada", "tentativas")),
@@ -81,28 +80,10 @@ SCENARIOS: Final[list[tuple[str, str, tuple[str, ...]]]] = [
     ("Backup automático ausente", "infra", ("backup-automatico", "retencao")),
     ("Webhook sem entrega", "performance", ("webhook", "integracao")),
     ("Importação de banco falhou", "migration", ("importacao-banco", "sql")),
-]
+)
 
-FIRST_NAMES: Final[tuple[str, ...]] = (
-    "Ana", "Beatriz", "Bruno", "Camila", "Carlos", "Daniel", "Eduarda", "Felipe",
-    "Fernanda", "Gabriel", "Helena", "Igor", "Isabela", "João", "Juliana",
-    "Larissa", "Leonardo", "Lucas", "Mariana", "Mateus", "Natália", "Paulo",
-    "Rafael", "Renata", "Rodrigo", "Sabrina", "Thiago", "Vanessa", "Vinícius", "Yasmin",
-)
-LAST_NAMES: Final[tuple[str, ...]] = (
-    "Almeida", "Alves", "Andrade", "Barbosa", "Cardoso", "Carvalho", "Castro",
-    "Costa", "Dias", "Fernandes", "Ferreira", "Freitas", "Gomes", "Lima", "Lopes",
-    "Martins", "Mendes", "Monteiro", "Moraes", "Moreira", "Nascimento", "Nunes",
-    "Oliveira", "Pereira", "Ribeiro", "Rocha", "Rodrigues", "Silva", "Souza", "Teixeira",
-)
 CHANNEL_TAGS: Final[tuple[str, ...]] = ("chat", "email", "formulario-web", "telefone")
 ACCOUNT_TAGS: Final[tuple[str, ...]] = ("cliente-pj", "cliente-pme", "cloud", "vps", "compartilhado")
-
-
-def slugify(value: str) -> str:
-    normalized = unicodedata.normalize("NFKD", value)
-    ascii_value = normalized.encode("ascii", "ignore").decode("ascii").lower()
-    return re.sub(r"[^a-z0-9]+", "-", ascii_value).strip("-")
 
 
 def parse_iso8601(value: str) -> datetime:
@@ -118,31 +99,46 @@ def isoformat_z(value: datetime | None) -> str | None:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def deterministic_rng(seed: str, namespace: str, identifier: int) -> random.Random:
-    message = f"{namespace}:v{GENERATOR_VERSION}:{identifier}".encode()
-    digest = hmac.new(seed.encode(), message, hashlib.sha256).digest()
-    return random.Random(int.from_bytes(digest[:16], "big"))
-
-
 def default_anchor(year: int) -> datetime:
     if year < 2000 or year > 2100:
         raise ValueError("--year deve estar entre 2000 e 2100")
     return datetime(year, 8, 1, 5, 30, tzinfo=timezone.utc)
 
 
-def build_customer(seed: str, index: int) -> dict[str, Any]:
-    rng = deterministic_rng(seed, "customer", index)
-    first = FIRST_NAMES[index % len(FIRST_NAMES)]
-    last = LAST_NAMES[(index // len(FIRST_NAMES)) % len(LAST_NAMES)]
-    if rng.random() < 0.5:
-        last = rng.choice(LAST_NAMES)
-    company = f"empresa{index + 1}"
-    return {
-        "requester_id": 40_000 + index,
-        "requester_name": f"{first} {last}",
-        "requester_email": f"{slugify(first)}.{slugify(last)}{index + 1}@{company}.com.br",
-        "company": company,
-    }
+def deterministic_rng(seed: str, namespace: str, identifier: int) -> random.Random:
+    message = f"{namespace}:v{GENERATOR_VERSION}:{identifier}".encode()
+    digest = hmac.new(seed.encode(), message, hashlib.sha256).digest()
+    return random.Random(int.from_bytes(digest[:16], "big"))
+
+
+def load_customers(path: Path) -> list[dict[str, Any]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("O catálogo de clientes deve ser uma lista JSON não vazia")
+
+    customers: list[dict[str, Any]] = []
+    ids: set[int] = set()
+    emails: set[str] = set()
+    for index, raw in enumerate(payload):
+        if not isinstance(raw, dict):
+            raise ValueError(f"Cliente na posição {index} não é um objeto")
+        external_id = int(raw["external_requester_id"])
+        name = str(raw["requester_name"]).strip()
+        email = str(raw["requester_email"]).strip().lower()
+        if not name or "@" not in email:
+            raise ValueError(f"Cliente inválido na posição {index}")
+        if external_id in ids or email in emails:
+            raise ValueError("IDs externos e e-mails de clientes devem ser únicos")
+        ids.add(external_id)
+        emails.add(email)
+        customers.append(
+            {
+                "external_requester_id": external_id,
+                "requester_name": name,
+                "requester_email": email,
+            }
+        )
+    return customers
 
 
 def choose_status(rng: random.Random, offset: int) -> str:
@@ -161,7 +157,13 @@ def clamp(value: datetime, anchor: datetime) -> datetime:
     return min(value, anchor)
 
 
-def build_timeline(rng: random.Random, status: str, created: datetime, ticket_id: int, anchor: datetime) -> dict[str, Any]:
+def build_timeline(
+    rng: random.Random,
+    status: str,
+    created: datetime,
+    ticket_id: int,
+    anchor: datetime,
+) -> dict[str, Any]:
     response: datetime | None = None
     offered: datetime | None = None
     rated: datetime | None = None
@@ -184,6 +186,7 @@ def build_timeline(rng: random.Random, status: str, created: datetime, ticket_id
         if score != "unoffered":
             offered = clamp(solved + timedelta(minutes=rng.randint(1, 30)), anchor)
         if score in {"good", "bad"}:
+            assert offered is not None
             rated = clamp(offered + timedelta(minutes=rng.randint(10, 48 * 60)), anchor)
             comment = "Atendimento satisfatório." if score == "good" else "Atendimento abaixo do esperado."
         updated = solved if status == "solved" else clamp(solved + timedelta(days=rng.randint(1, 4)), anchor)
@@ -192,20 +195,33 @@ def build_timeline(rng: random.Random, status: str, created: datetime, ticket_id
     return {
         "updated_at": updated,
         "first_response_at": response,
-        "rating": {"score": score, "offered_at": offered, "rated_at": rated, "comment": comment},
+        "rating": {
+            "score": score,
+            "offered_at": offered,
+            "rated_at": rated,
+            "comment": comment,
+        },
     }
 
 
-def generate_ticket(*, seed: str, ticket_id: int, offset: int, customers: int, year_start: datetime, anchor: datetime) -> dict[str, Any]:
+def generate_ticket(
+    *,
+    customer: dict[str, Any],
+    ticket_id: int,
+    offset: int,
+    seed: str,
+    year_start: datetime,
+    anchor: datetime,
+) -> dict[str, Any]:
     rng = deterministic_rng(seed, "ticket", ticket_id)
-    customer = build_customer(seed, offset % customers)
     topic, agent_key, scenario_tags = SCENARIOS[rng.randrange(len(SCENARIOS))]
     status = choose_status(rng, offset)
     priority = choose_priority(rng, offset)
-    total_seconds = int((anchor - year_start).total_seconds())
-    created = year_start + timedelta(seconds=rng.randint(0, total_seconds))
+    created = year_start + timedelta(
+        seconds=rng.randint(0, int((anchor - year_start).total_seconds()))
+    )
     timeline = build_timeline(rng, status, created, ticket_id, anchor)
-    domain = f"{customer['company']}-{ticket_id}.com.br"
+    email_domain = customer["requester_email"].split("@", 1)[1]
 
     assignee_id: int | None = None
     assignee_name: str | None = None
@@ -215,11 +231,11 @@ def generate_ticket(*, seed: str, ticket_id: int, offset: int, customers: int, y
     rating = timeline["rating"]
     return {
         "ticket_id": ticket_id,
-        "subject": f"{topic} em {domain}",
-        "description": f"Solicitação fictícia sobre {topic.lower()} no serviço {domain}.",
+        "subject": f"{topic} em {email_domain}",
+        "description": f"Solicitação fictícia sobre {topic.lower()} no ambiente {email_domain}.",
         "status": status,
         "priority": priority,
-        "requester_id": customer["requester_id"],
+        "requester_id": customer["external_requester_id"],
         "requester_name": customer["requester_name"],
         "requester_email": customer["requester_email"],
         "assignee_id": assignee_id,
@@ -227,7 +243,11 @@ def generate_ticket(*, seed: str, ticket_id: int, offset: int, customers: int, y
         "created_at": isoformat_z(created),
         "updated_at": isoformat_z(timeline["updated_at"]),
         "first_response_at": isoformat_z(timeline["first_response_at"]),
-        "tags": list(dict.fromkeys((*scenario_tags, rng.choice(CHANNEL_TAGS), rng.choice(ACCOUNT_TAGS)))),
+        "tags": list(
+            dict.fromkeys(
+                (*scenario_tags, rng.choice(CHANNEL_TAGS), rng.choice(ACCOUNT_TAGS))
+            )
+        ),
         "satisfaction_rating": {
             "score": rating["score"],
             "offered_at": isoformat_z(rating["offered_at"]),
@@ -237,64 +257,100 @@ def generate_ticket(*, seed: str, ticket_id: int, offset: int, customers: int, y
     }
 
 
-def validate_ticket(ticket: dict[str, Any], *, year_start: datetime, anchor: datetime) -> None:
-    dates = [
-        ticket["created_at"], ticket["updated_at"], ticket["first_response_at"],
-        ticket["satisfaction_rating"]["offered_at"], ticket["satisfaction_rating"]["rated_at"],
-    ]
-    parsed = [parse_iso8601(value) for value in dates if value]
-    if any(value < year_start or value > anchor for value in parsed):
-        raise ValueError(f"Ticket {ticket['ticket_id']}: timestamp fora de {anchor.year}")
-    if parse_iso8601(ticket["updated_at"]) < parse_iso8601(ticket["created_at"]):
-        raise ValueError(f"Ticket {ticket['ticket_id']}: timeline inválida")
-    if ticket["status"] == "new" and any((ticket["assignee_id"], ticket["assignee_name"], ticket["first_response_at"])):
-        raise ValueError(f"Ticket {ticket['ticket_id']}: ticket new inconsistente")
-    if ticket["status"] != "new" and (ticket["assignee_id"] is None or ticket["assignee_name"] is None):
-        raise ValueError(f"Ticket {ticket['ticket_id']}: responsável ausente")
-
-
-def generate_dataset(*, count: int, customers: int, start_id: int, seed: str, anchor: datetime) -> list[dict[str, Any]]:
-    if count <= 0 or customers <= 0:
-        raise ValueError("--count e --customers devem ser maiores que zero")
-    if count < customers * 2:
-        raise ValueError("Cada cliente deve receber pelo menos dois tickets")
+def generate_dataset(
+    *,
+    customers: list[dict[str, Any]],
+    tickets_per_customer: int,
+    start_id: int,
+    seed: str,
+    anchor: datetime,
+) -> list[dict[str, Any]]:
+    if tickets_per_customer < 2:
+        raise ValueError("Cada cliente deve receber ao menos dois tickets")
     year_start = datetime(anchor.year, 1, 1, tzinfo=timezone.utc)
-    tickets = [
-        generate_ticket(
-            seed=seed, ticket_id=start_id + offset, offset=offset, customers=customers,
-            year_start=year_start, anchor=anchor,
-        )
-        for offset in range(count)
-    ]
-    for ticket in tickets:
-        validate_ticket(ticket, year_start=year_start, anchor=anchor)
+    tickets: list[dict[str, Any]] = []
+    offset = 0
+
+    # Round-robin ordering: every batch of 30 contains one ticket per customer.
+    for _round in range(tickets_per_customer):
+        for customer in customers:
+            tickets.append(
+                generate_ticket(
+                    customer=customer,
+                    ticket_id=start_id + offset,
+                    offset=offset,
+                    seed=seed,
+                    year_start=year_start,
+                    anchor=anchor,
+                )
+            )
+            offset += 1
     return tickets
 
 
-def validate_dataset(tickets: list[dict[str, Any]], *, count: int, customers: int) -> dict[str, Any]:
+def validate_dataset(
+    tickets: list[dict[str, Any]],
+    *,
+    customers: list[dict[str, Any]],
+    tickets_per_customer: int,
+    anchor: datetime,
+) -> dict[str, Any]:
+    expected_count = len(customers) * tickets_per_customer
+    if len(tickets) != expected_count:
+        raise RuntimeError("Quantidade de tickets inválida")
     ids = {ticket["ticket_id"] for ticket in tickets}
+    if len(ids) != expected_count:
+        raise RuntimeError("IDs de tickets duplicados")
+
     customer_counts = Counter(ticket["requester_email"] for ticket in tickets)
+    if set(customer_counts.values()) != {tickets_per_customer}:
+        raise RuntimeError("Distribuição por cliente inválida")
+
+    year_start = datetime(anchor.year, 1, 1, tzinfo=timezone.utc)
+    for ticket in tickets:
+        for value in (
+            ticket["created_at"],
+            ticket["updated_at"],
+            ticket["first_response_at"],
+            ticket["satisfaction_rating"]["offered_at"],
+            ticket["satisfaction_rating"]["rated_at"],
+        ):
+            if value is None:
+                continue
+            parsed = parse_iso8601(value)
+            if parsed < year_start or parsed > anchor:
+                raise RuntimeError(f"Ticket {ticket['ticket_id']} fora do ano da âncora")
+
     statuses = Counter(ticket["status"] for ticket in tickets)
     priorities = Counter(ticket["priority"] for ticket in tickets)
     ratings = Counter(ticket["satisfaction_rating"]["score"] for ticket in tickets)
-    agents = {ticket["assignee_id"] for ticket in tickets if ticket["assignee_id"] is not None}
-    tags = {tag for ticket in tickets for tag in ticket["tags"]}
-    if len(tickets) != count or len(ids) != count:
-        raise RuntimeError("Quantidade ou IDs de tickets inválidos")
-    if len(customer_counts) != customers or any(value < 2 for value in customer_counts.values()):
-        raise RuntimeError("Distribuição de clientes inválida")
-    if set(statuses) != set(STATUSES) or set(priorities) != set(PRIORITIES) or set(ratings) != set(RATINGS):
-        raise RuntimeError("Cobertura de enums incompleta")
-    if len(agents) != len(AGENTS) or len(tags) < 50:
-        raise RuntimeError("Cobertura de agentes ou tags incompleta")
-    return {"tickets": count, "customers": customers, "agents": len(agents), "tags": len(tags)}
+    if set(statuses) != set(STATUSES):
+        raise RuntimeError("Cobertura de status incompleta")
+    if set(priorities) != set(PRIORITIES):
+        raise RuntimeError("Cobertura de prioridades incompleta")
+    if set(ratings) != set(RATINGS):
+        raise RuntimeError("Cobertura de satisfação incompleta")
+
+    return {
+        "tickets": len(tickets),
+        "customers": len(customers),
+        "statuses": dict(statuses),
+        "priorities": dict(priorities),
+        "ratings": dict(ratings),
+    }
 
 
 def write_json(path: Path, tickets: list[dict[str, Any]], *, pretty: bool) -> str:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8") as output:
-        json.dump(tickets, output, ensure_ascii=False, indent=2 if pretty else None, separators=None if pretty else (",", ":"))
+        json.dump(
+            tickets,
+            output,
+            ensure_ascii=False,
+            indent=2 if pretty else None,
+            separators=None if pretty else (",", ":"),
+        )
         output.write("\n")
     digest = hashlib.sha256(temporary.read_bytes()).hexdigest()
     temporary.replace(path)
@@ -302,12 +358,18 @@ def write_json(path: Path, tickets: list[dict[str, Any]], *, pretty: bool) -> st
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Gera data/tickets.json para o desafio HostGator")
+    parser = argparse.ArgumentParser(
+        description="Gera o JSON estático de tickets do desafio HostGator"
+    )
     date_group = parser.add_mutually_exclusive_group()
     date_group.add_argument("--year", type=int, help=f"Ano do dataset. Padrão: {DEFAULT_YEAR}")
-    date_group.add_argument("--anchor", help="Data máxima ISO-8601; define também o ano do dataset")
-    parser.add_argument("--count", type=int, default=DEFAULT_COUNT)
-    parser.add_argument("--customers", type=int, default=DEFAULT_CUSTOMERS)
+    date_group.add_argument("--anchor", help="Data máxima ISO-8601; define o ano")
+    parser.add_argument("--customers-file", type=Path, default=DEFAULT_CUSTOMERS_FILE)
+    parser.add_argument(
+        "--tickets-per-customer",
+        type=int,
+        default=DEFAULT_TICKETS_PER_CUSTOMER,
+    )
     parser.add_argument("--start-id", type=int, default=DEFAULT_START_ID)
     parser.add_argument("--seed")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -320,26 +382,34 @@ def main() -> int:
     try:
         anchor = parse_iso8601(args.anchor) if args.anchor else default_anchor(args.year or DEFAULT_YEAR)
         seed = args.seed or f"hostgator-challenge-{anchor.year}"
-        tickets = generate_dataset(count=args.count, customers=args.customers, start_id=args.start_id, seed=seed, anchor=anchor)
-        summary = validate_dataset(tickets, count=args.count, customers=args.customers)
+        customers = load_customers(args.customers_file)
+        tickets = generate_dataset(
+            customers=customers,
+            tickets_per_customer=args.tickets_per_customer,
+            start_id=args.start_id,
+            seed=seed,
+            anchor=anchor,
+        )
+        summary = validate_dataset(
+            tickets,
+            customers=customers,
+            tickets_per_customer=args.tickets_per_customer,
+            anchor=anchor,
+        )
         digest = write_json(args.output, tickets, pretty=args.pretty)
-    except (ValueError, RuntimeError, OSError) as error:
+    except (KeyError, TypeError, ValueError, RuntimeError, OSError, json.JSONDecodeError) as error:
         print(f"Erro: {error}", file=sys.stderr)
         return 1
 
-    created = [parse_iso8601(ticket["created_at"]) for ticket in tickets]
-    updated = [parse_iso8601(ticket["updated_at"]) for ticket in tickets]
     print(f"Arquivo: {args.output.resolve()}")
     print(f"Ano: {anchor.year}")
     print(f"Âncora: {isoformat_z(anchor)}")
     print(f"SHA-256: {digest}")
     print(f"Tickets: {summary['tickets']}")
     print(f"Clientes: {summary['customers']}")
-    print(f"Agentes: {summary['agents']}")
-    print(f"Tags distintas: {summary['tags']}")
-    print(f"Menor created_at: {isoformat_z(min(created))}")
-    print(f"Maior created_at: {isoformat_z(max(created))}")
-    print(f"Maior updated_at: {isoformat_z(max(updated))}")
+    print(f"Status: {summary['statuses']}")
+    print(f"Prioridades: {summary['priorities']}")
+    print(f"Avaliações: {summary['ratings']}")
     return 0
 
 
