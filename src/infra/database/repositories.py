@@ -265,7 +265,6 @@ class SqlAlchemyCustomerRepository(_SqlAlchemyRepository, CustomerRepository):
 
         customer = email_match or id_match
         created = False
-        updated = False
         if customer is None:
             customer = Customer(
                 external_requester_id=external_requester_id,
@@ -284,13 +283,11 @@ class SqlAlchemyCustomerRepository(_SqlAlchemyRepository, CustomerRepository):
                 )
             if customer.requester_name != requester_name:
                 customer.requester_name = requester_name
-                updated = True
 
         await self._session.flush()
         return CustomerSourceResult(
             customer=CustomerEntity.model_validate(customer),
             created=created,
-            updated=updated,
         )
 
 
@@ -426,7 +423,6 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
         return TicketSourceResult(
             ticket=TicketEntity.model_validate(ticket),
             created=created,
-            updated=not created,
         )
 
     async def get_ingestion_control(
@@ -449,23 +445,10 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
         await self._session.flush()
         return self._to_ingestion_control_state(control)
 
-    async def mark_ingestion_processing(self) -> None:
-        control = await self._get_ingestion_control_model(for_update=True)
-        control.worker_state = "PROCESSING"
-        control.last_heartbeat_at = self._now()
-        control.last_error = None
-        await self._session.flush()
-
-    async def complete_ingestion_cycle(
-        self,
-        *,
-        next_cursor: int,
-        source_version: str,
-    ) -> None:
+    async def complete_ingestion_cycle(self, *, next_cursor: int) -> None:
         control = await self._get_ingestion_control_model(for_update=True)
         now = self._now()
         control.cursor_position = next_cursor
-        control.source_version = source_version
         control.worker_state = "IDLE"
         control.last_heartbeat_at = now
         control.last_success_at = now
@@ -723,7 +706,7 @@ class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):
         await self._session.flush()
 
     async def delete(self, entity_id: UUID) -> None:
-        orm = await self._session.get(TicketTag, entity_id)
+        orm = await self._session.get(TicketTag, entity.id)
         if not orm:
             return
         await self._session.delete(orm)
