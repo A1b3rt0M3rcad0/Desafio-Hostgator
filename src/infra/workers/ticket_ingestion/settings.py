@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 class WorkerSettings:
     database_url: str
     source_path: str
-    batch_size: int = 25
+    batch_size: int = 30
     interval_seconds: float = 30.0
     control_poll_seconds: float = 2.0
 
@@ -26,7 +26,7 @@ class WorkerSettings:
         settings = cls(
             database_url=database_url,
             source_path=os.getenv("WORKER_SOURCE_PATH", "/data/tickets.json"),
-            batch_size=int(os.getenv("WORKER_BATCH_SIZE", "25")),
+            batch_size=int(os.getenv("WORKER_BATCH_SIZE", "30")),
             interval_seconds=float(os.getenv("WORKER_INTERVAL_SECONDS", "30")),
             control_poll_seconds=float(
                 os.getenv("WORKER_CONTROL_POLL_SECONDS", "2")
