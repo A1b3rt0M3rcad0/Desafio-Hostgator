@@ -33,41 +33,6 @@ services:
       db:
         condition: service_healthy
 
-  mock-data:
-    build:
-      context: .
-      dockerfile: Dockerfile.migrations
-    command:
-      - uv
-      - run
-      - python
-      - data/generate_tickets_mock.py
-      - --year
-      - "${MOCK_YEAR:-2026}"
-    volumes:
-      - ./data:/app/data
-    restart: "no"
-
-  seed:
-    build:
-      context: .
-      dockerfile: Dockerfile.migrations
-    command:
-      - uv
-      - run
-      - python
-      - scripts/seed_demo_customers.py
-    environment:
-      MYSQL_URL_CONNECTION_SEED: "${MYSQL_URL_CONNECTION_MIGRATIONS:?Set MYSQL_URL_CONNECTION_MIGRATIONS in .env}"
-      DEMO_SEED_ENABLED: "${DEMO_SEED_ENABLED:-true}"
-      DEMO_CUSTOMERS_PATH: /app/data/customers_seed.json
-    depends_on:
-      migrations:
-        condition: service_completed_successfully
-      mock-data:
-        condition: service_completed_successfully
-    restart: "no"
-
   api:
     build:
       context: .
@@ -95,7 +60,7 @@ services:
     ports:
       - "${API_HOST_PORT:-8000}:8000"
     depends_on:
-      seed:
+      migrations:
         condition: service_completed_successfully
     healthcheck:
       test:
@@ -120,12 +85,14 @@ services:
       WORKER_BATCH_SIZE: "${WORKER_BATCH_SIZE:-30}"
       WORKER_INTERVAL_SECONDS: "${WORKER_INTERVAL_SECONDS:-30}"
       WORKER_CONTROL_POLL_SECONDS: "${WORKER_CONTROL_POLL_SECONDS:-2}"
+      MOCK_CUSTOMER_COUNT: "${MOCK_CUSTOMER_COUNT:-500}"
+      MOCK_START_TICKET_ID: "${MOCK_START_TICKET_ID:-100001}"
+      MOCK_YEAR: "${MOCK_YEAR:-2026}"
+      MOCK_SEED: "${MOCK_SEED:-hostgator-challenge-v4}"
     volumes:
-      - ./data:/data:ro
+      - ./data:/data
     depends_on:
-      seed:
-        condition: service_completed_successfully
-      mock-data:
+      migrations:
         condition: service_completed_successfully
     restart: unless-stopped
 
