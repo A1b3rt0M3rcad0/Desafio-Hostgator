@@ -2,7 +2,7 @@ import base64
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.repositories import (
@@ -17,8 +17,10 @@ from src.application.contracts.repositories import (
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
 from src.application.dtos.ticket_ingestion import (
-    BatchIngestionResult,
+    CustomerSourceResult,
+    SatisfactionSourceRecord,
     TicketSourceRecord,
+    TicketSourceResult,
 )
 from src.domain.entities import (
     AuthSessionEntity,
@@ -40,7 +42,14 @@ from src.infra.database.models import (
     User,
 )
 from src.infra.database.unit_of_work import UnitOfWork
-from src.infra.ingestion.persistence import synchronize_ticket_batch
+
+
+def _naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 class _SqlAlchemyRepository:
@@ -208,6 +217,82 @@ class SqlAlchemyCustomerRepository(_SqlAlchemyRepository, CustomerRepository):
             has_previous=cursor is not None,
         )
 
+    async def upsert_from_source(
+        self,
+        *,
+        external_requester_id: int,
+        requester_name: str,
+        requester_email: str,
+    ) -> CustomerSourceResult:
+        email = requester_email.strip().lower()
+        rows = (
+            await self._session.execute(
+                select(Customer)
+                .where(
+                    or_(
+                        func.lower(Customer.requester_email) == email,
+                        Customer.external_requester_id == external_requester_id,
+                    )
+                )
+                .with_for_update()
+            )
+        ).scalars().all()
+
+        email_match = next(
+            (
+                customer
+                for customer in rows
+                if customer.requester_email.strip().lower() == email
+            ),
+            None,
+        )
+        id_match = next(
+            (
+                customer
+                for customer in rows
+                if customer.external_requester_id == external_requester_id
+            ),
+            None,
+        )
+        if (
+            email_match is not None
+            and id_match is not None
+            and email_match.id != id_match.id
+        ):
+            raise ValueError(
+                "Requester email and external ID belong to different customers"
+            )
+
+        customer = email_match or id_match
+        created = False
+        updated = False
+        if customer is None:
+            customer = Customer(
+                external_requester_id=external_requester_id,
+                requester_name=requester_name,
+                requester_email=email,
+            )
+            self._session.add(customer)
+            created = True
+        else:
+            if (
+                customer.external_requester_id != external_requester_id
+                or customer.requester_email.strip().lower() != email
+            ):
+                raise ValueError(
+                    "Requester identity conflicts with an existing customer"
+                )
+            if customer.requester_name != requester_name:
+                customer.requester_name = requester_name
+                updated = True
+
+        await self._session.flush()
+        return CustomerSourceResult(
+            customer=CustomerEntity.model_validate(customer),
+            created=created,
+            updated=updated,
+        )
+
 
 class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
     async def add(self, entity: TicketEntity) -> None:
@@ -296,18 +381,52 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
             has_previous=cursor is not None,
         )
 
-    async def synchronize_batch(
+    async def upsert_from_source(
         self,
-        records: list[TicketSourceRecord],
+        record: TicketSourceRecord,
         *,
-        invalid: int = 0,
-        received: int | None = None,
-    ) -> BatchIngestionResult:
-        return await synchronize_ticket_batch(
-            self._session,
-            records,
-            invalid=invalid,
-            received=received,
+        customer_id: UUID,
+    ) -> TicketSourceResult:
+        ticket = (
+            await self._session.execute(
+                select(Ticket)
+                .where(Ticket.external_ticket_id == record.ticket_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+        source_updated_at = _naive_utc(record.updated_at)
+
+        if ticket is not None and ticket.source_updated_at >= source_updated_at:
+            return TicketSourceResult(
+                ticket=TicketEntity.model_validate(ticket),
+                unchanged=True,
+            )
+
+        values = {
+            "customer_id": customer_id,
+            "subject": record.subject,
+            "description": record.description,
+            "first_response_at": _naive_utc(record.first_response_at),
+            "status": record.status,
+            "priority": record.priority,
+            "assignee_external_id": record.assignee_id,
+            "assignee_name": record.assignee_name,
+            "source_created_at": _naive_utc(record.created_at),
+            "source_updated_at": source_updated_at,
+        }
+        created = ticket is None
+        if ticket is None:
+            ticket = Ticket(external_ticket_id=record.ticket_id, **values)
+            self._session.add(ticket)
+        else:
+            for key, value in values.items():
+                setattr(ticket, key, value)
+
+        await self._session.flush()
+        return TicketSourceResult(
+            ticket=TicketEntity.model_validate(ticket),
+            created=created,
+            updated=not created,
         )
 
     async def get_ingestion_control(
@@ -455,6 +574,39 @@ class SqlAlchemySatisfactionRatingRepository(
             has_previous=cursor is not None,
         )
 
+    async def synchronize_from_source(
+        self,
+        *,
+        ticket_id: UUID,
+        source: SatisfactionSourceRecord | None,
+    ) -> None:
+        current = (
+            await self._session.execute(
+                select(SatisfactionRating)
+                .where(SatisfactionRating.ticket_id == ticket_id)
+                .with_for_update()
+            )
+        ).scalar_one_or_none()
+
+        if source is None:
+            if current is not None:
+                await self._session.delete(current)
+                await self._session.flush()
+            return
+
+        values = {
+            "score": source.score,
+            "offered_at": _naive_utc(source.offered_at),
+            "rated_at": _naive_utc(source.rated_at),
+            "comment": source.comment,
+        }
+        if current is None:
+            self._session.add(SatisfactionRating(ticket_id=ticket_id, **values))
+        else:
+            for key, value in values.items():
+                setattr(current, key, value)
+        await self._session.flush()
+
 
 class SqlAlchemyTagRepository(_SqlAlchemyRepository, TagRepository):
     async def add(self, entity: TagEntity) -> None:
@@ -508,6 +660,28 @@ class SqlAlchemyTagRepository(_SqlAlchemyRepository, TagRepository):
             has_next=has_next,
             has_previous=cursor is not None,
         )
+
+    async def resolve_by_names(self, names: list[str]) -> dict[str, TagEntity]:
+        normalized_names = sorted({name.strip() for name in names if name.strip()})
+        if not normalized_names:
+            return {}
+
+        existing = (
+            await self._session.execute(
+                select(Tag).where(Tag.name.in_(normalized_names))
+            )
+        ).scalars().all()
+        by_name = {tag.name: tag for tag in existing}
+        for name in normalized_names:
+            if name not in by_name:
+                tag = Tag(name=name)
+                self._session.add(tag)
+                by_name[name] = tag
+        await self._session.flush()
+        return {
+            name: TagEntity.model_validate(tag)
+            for name, tag in by_name.items()
+        }
 
 
 class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):
@@ -580,3 +754,16 @@ class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):
             has_next=has_next,
             has_previous=cursor is not None,
         )
+
+    async def replace_for_ticket(
+        self,
+        *,
+        ticket_id: UUID,
+        tag_ids: list[UUID],
+    ) -> None:
+        await self._session.execute(
+            delete(TicketTag).where(TicketTag.ticket_id == ticket_id)
+        )
+        for tag_id in dict.fromkeys(tag_ids):
+            self._session.add(TicketTag(ticket_id=ticket_id, tag_id=tag_id))
+        await self._session.flush()
