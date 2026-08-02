@@ -63,13 +63,7 @@ def read_generated_tickets(path: Path, expected_count: int) -> list[TicketSource
     return [TicketSourceRecord.model_validate(item) for item in payload]
 
 
-async def ingestion_enabled(engine: AsyncEngine) -> bool:
-    async with UnitOfWork(engine) as unit_of_work:
-        repository = SqlAlchemyTicketRepository(unit_of_work)
-        return (await repository.get_ingestion_control()).enabled
-
-
-async def run_cycle(engine: AsyncEngine, settings: Settings) -> None:
+async def run_cycle(engine: AsyncEngine, settings: Settings) -> bool:
     async with UnitOfWork(engine) as unit_of_work:
         customers = SqlAlchemyCustomerRepository(unit_of_work)
         tickets = SqlAlchemyTicketRepository(unit_of_work)
@@ -79,14 +73,13 @@ async def run_cycle(engine: AsyncEngine, settings: Settings) -> None:
 
         control = await tickets.get_ingestion_control(for_update=True)
         if not control.enabled:
-            return
+            return False
 
-        await tickets.mark_ingestion_processing()
         generated_count = control.cursor_position
         cycle_number = generated_count // settings.batch_size
         start_ticket_id = settings.start_ticket_id + generated_count
 
-        _, digest = await asyncio.to_thread(
+        await asyncio.to_thread(
             generate_and_write_batch,
             output=settings.source_path,
             cycle_number=cycle_number,
@@ -136,10 +129,7 @@ async def run_cycle(engine: AsyncEngine, settings: Settings) -> None:
             )
 
         next_cursor = generated_count + len(records)
-        await tickets.complete_ingestion_cycle(
-            next_cursor=next_cursor,
-            source_version=digest,
-        )
+        await tickets.complete_ingestion_cycle(next_cursor=next_cursor)
         LOGGER.info(
             "ticket_ingestion.completed cycle=%s generated=%s customers_created=%s "
             "tickets_created=%s next_ticket_id=%s",
@@ -149,6 +139,7 @@ async def run_cycle(engine: AsyncEngine, settings: Settings) -> None:
             created_tickets,
             settings.start_ticket_id + next_cursor,
         )
+        return True
 
 
 async def register_error(engine: AsyncEngine, error: Exception) -> None:
@@ -184,11 +175,12 @@ async def run() -> None:
     try:
         while not stop.is_set():
             try:
-                if await ingestion_enabled(engine):
-                    await run_cycle(engine, settings)
-                    delay = settings.interval_seconds
-                else:
-                    delay = settings.poll_seconds
+                completed = await run_cycle(engine, settings)
+                delay = (
+                    settings.interval_seconds
+                    if completed
+                    else settings.poll_seconds
+                )
             except Exception as error:
                 LOGGER.exception("ticket_ingestion.failed")
                 try:
