@@ -5,8 +5,10 @@ from uuid import UUID
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
 from src.application.dtos.ticket_ingestion import (
-    BatchIngestionResult,
+    CustomerSourceResult,
+    SatisfactionSourceRecord,
     TicketSourceRecord,
+    TicketSourceResult,
 )
 from src.domain.entities import (
     AuthSessionEntity,
@@ -64,7 +66,15 @@ class AuthSessionRepository(ABC):
     async def revoke_all_by_user(self, user_id: UUID) -> int: ...
 
 
-class CustomerRepository(Repository[CustomerEntity]): ...
+class CustomerRepository(Repository[CustomerEntity]):
+    @abstractmethod
+    async def upsert_from_source(
+        self,
+        *,
+        external_requester_id: int,
+        requester_name: str,
+        requester_email: str,
+    ) -> CustomerSourceResult: ...
 
 
 class TicketRepository(Repository[TicketEntity]):
@@ -77,13 +87,12 @@ class TicketRepository(Repository[TicketEntity]):
     ) -> CursorPage[TicketEntity]: ...
 
     @abstractmethod
-    async def synchronize_batch(
+    async def upsert_from_source(
         self,
-        records: list[TicketSourceRecord],
+        record: TicketSourceRecord,
         *,
-        invalid: int = 0,
-        received: int | None = None,
-    ) -> BatchIngestionResult: ...
+        customer_id: UUID,
+    ) -> TicketSourceResult: ...
 
     @abstractmethod
     async def get_ingestion_control(
@@ -113,10 +122,19 @@ class TicketRepository(Repository[TicketEntity]):
     async def register_ingestion_error(self, message: str) -> None: ...
 
 
-class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]): ...
+class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):
+    @abstractmethod
+    async def synchronize_from_source(
+        self,
+        *,
+        ticket_id: UUID,
+        source: SatisfactionSourceRecord | None,
+    ) -> None: ...
 
 
-class TagRepository(Repository[TagEntity]): ...
+class TagRepository(Repository[TagEntity]):
+    @abstractmethod
+    async def resolve_by_names(self, names: list[str]) -> dict[str, TagEntity]: ...
 
 
 class TicketTagRepository(Repository[TicketTagEntity]):
@@ -125,4 +143,12 @@ class TicketTagRepository(Repository[TicketTagEntity]):
         self,
         ticket_id: UUID,
         tag_id: UUID,
+    ) -> None: ...
+
+    @abstractmethod
+    async def replace_for_ticket(
+        self,
+        *,
+        ticket_id: UUID,
+        tag_ids: list[UUID],
     ) -> None: ...
