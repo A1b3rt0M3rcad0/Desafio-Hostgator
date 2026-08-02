@@ -1,52 +1,82 @@
 # Desafio HostGator
 
-Aplicação para persistência, processamento, visualização analítica e exportação de dados de atendimento.
+Aplicação web para gerenciar clientes monitorados, consumir um histórico estático de tickets de HelpDesk, persistir as relações no MySQL e calcular métricas comportamentais de atendimento.
 
 ## Inicialização local
-
-O repositório já inclui a fonte estática em `data/tickets.json`. Copie o arquivo de exemplo para `.env` e suba o stack:
 
 ```bash
 cp .env.example .env
 docker compose up --build -d
 ```
 
-O fixture contém 10.000 tickets determinísticos de 500 clientes fictícios. Todas as datas do arquivo padrão pertencem a 2026 e estão limitadas à referência de 1º de agosto de 2026. Para regenerá-lo:
+No PowerShell:
 
-```bash
-python data/generate_tickets_mock.py
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
 ```
 
-Outro ano pode ser selecionado explicitamente:
-
-```bash
-python data/generate_tickets_mock.py --year 2025
-```
-
-Serviços locais padrão:
+Serviços locais:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:8000`
-- Documentação da API: `http://localhost:8000/docs`
+- Swagger: `http://localhost:8000/docs`
 - MySQL: `localhost:3306`
 
-A inicialização segue `db -> migrations -> api/web` e `db -> migrations -> worker`. O healthcheck do MySQL usa TCP autenticado e o container de migrations confirma uma conexão SQL real, com retentativas limitadas, antes de executar o Alembic. O worker não depende da API e não expõe porta.
-
-## Configuração de ambiente
-
-Somente `.env.example` é usado como modelo de configuração. O `.env` é local, ignorado pelo Git e usado pelo Docker Compose para interpolar as configurações dos serviços.
-
-O navegador acessa a API pelo proxy do Nginx:
+A inicialização segue:
 
 ```text
-Navegador -> http://localhost:5173/api/* -> Nginx -> http://api:8000/*
+db
+  -> migrations
+  -> mock-data gera data/tickets.json
+  -> seed cadastra os clientes canônicos
+  -> api + worker
+  -> web
 ```
 
-Ao alterar a URL pública da web, atualize `CORS_ALLOWED_ORIGINS` e `TRUSTED_ORIGINS`.
+`mock-data`, `migrations` e `seed` são serviços one-shot. O estado `Exited (0)` é esperado depois da conclusão.
+
+## Fonte estática de tickets
+
+O desafio exige o consumo de um JSON estático que simula o retorno de uma plataforma de HelpDesk. O projeto mantém essa separação:
+
+```text
+data/generate_tickets_mock.py
+    -> produz data/tickets.json
+    -> encerra
+
+worker
+    -> consome o JSON já produzido
+    -> não gera conteúdo
+```
+
+O fixture local padrão contém:
+
+- 30 clientes canônicos em `data/customers_seed.json`;
+- 10 tickets por cliente;
+- 300 tickets no total;
+- dados exclusivamente de 2026;
+- múltiplos status, prioridades, tags, atendentes e avaliações.
+
+O arquivo `data/tickets.json` é gerado na inicialização e ignorado pelo Git. A geração manual é:
+
+```bash
+python data/generate_tickets_mock.py --pretty
+```
+
+As identidades presentes nos tickets são derivadas do mesmo catálogo usado no seed local. Portanto, o e-mail e o identificador externo do solicitante correspondem aos registros da tabela `customers`.
+
+Em ambientes que já possuam uma base real de clientes, desative o seed:
+
+```env
+DEMO_SEED_ENABLED=false
+```
+
+A fonte estática usada nesse ambiente deverá conter os mesmos e-mails dos clientes monitorados.
 
 ## Arquitetura
 
-A aplicação preserva a separação:
+O fluxo HTTP mantém a arquitetura da aplicação:
 
 ```text
 Domain
@@ -59,75 +89,94 @@ Domain
   -> FastAPI routes
 ```
 
-Os repositórios CRUD permanecem independentes. Dashboard, métricas e exportações utilizam contratos de leitura próprios. Controllers não executam SQL e casos de uso não dependem de FastAPI ou SQLAlchemy.
-
-Não existe upload manual de JSON nem rota produtiva de importação. A ingestão automática é executada por um worker de infraestrutura isolado.
-
-## Worker de ingestão automática
-
-O serviço `worker` cria uma engine SQLAlchemy própria, singleton durante a vida do processo. Ele não utiliza composers, controllers, casos de uso ou chamadas HTTP internas. Cada ciclo cria uma nova Unit of Work e repositories concretos ligados à sessão daquele lote.
-
-Fluxo:
+O worker é um processo de infraestrutura isolado:
 
 ```text
 worker container
-  -> engine própria
+  -> engine SQLAlchemy própria e singleton por processo
   -> Unit of Work por lote
-  -> repositories de infraestrutura
+  -> repositories concretos
   -> MySQL
 ```
+
+O worker não importa casos de uso, controllers, composers da API ou rotas HTTP.
+
+## Ingestão automática
 
 Configuração padrão:
 
 ```env
-WORKER_BATCH_SIZE=25
+WORKER_BATCH_SIZE=30
 WORKER_INTERVAL_SECONDS=30
 WORKER_CONTROL_POLL_SECONDS=2
 WORKER_SOURCE_PATH=/data/tickets.json
 ```
 
-Enquanto a ingestão estiver ligada, o worker processa exatamente um lote de até 25 registros e aguarda 30 segundos antes do próximo lote. O cursor é persistido na mesma transação dos tickets, tags, avaliações e pendências processadas.
+Enquanto a ingestão estiver ligada, o worker:
 
-O JSON é lido incrementalmente. O worker aceita tanto uma lista no nível raiz quanto um objeto com a propriedade `tickets`:
+1. lê até 30 registros do JSON estático;
+2. normaliza os dados recebidos;
+3. localiza os clientes pelo e-mail;
+4. valida o `requester_id` externo;
+5. cria ou atualiza tickets de forma idempotente;
+6. sincroniza tags e avaliações;
+7. avança o cursor na mesma transação;
+8. aguarda 30 segundos.
 
-```json
-[
-  { "ticket_id": 1 }
-]
+A relação central é:
+
+```text
+Customer 1 -------- N Ticket
+Ticket   N -------- N Tag
+Ticket   1 -------- 0..1 SatisfactionRating
 ```
 
-ou:
+O e-mail é a referência principal do cruzamento. O identificador externo do solicitante funciona como validação adicional. O worker não cria clientes.
 
-```json
-{
-  "tickets": [
-    { "ticket_id": 1 }
-  ]
-}
+Se um lote contiver cliente ausente, identidade conflitante ou registro inválido, a transação é revertida e o cursor não avança. O erro fica registrado em `ingestion_control.last_error`, evitando descarte silencioso.
+
+O fim do arquivo coloca o worker em `CAUGHT_UP`. Se o JSON for regenerado, sua versão muda, o cursor volta para zero e os tickets são reavaliados sem duplicidade por causa de `external_ticket_id` e `source_updated_at`.
+
+O dashboard expõe somente o controle funcional:
+
+```text
+Ingestão automática [ligar/desligar]
 ```
 
-A associação utiliza `requester_email` e `requester_id` para localizar clientes previamente cadastrados. O worker não cria clientes automaticamente. Registros sem cliente correspondente ou com conflito de identidade são persistidos em `ingestion_pending_tickets`, juntamente com o payload original e a versão da fonte.
-
-Em cada ciclo, o worker procura primeiro até 25 pendências cujo cliente agora exista. Quando encontra, processa essas pendências sem avançar o cursor do JSON e remove as linhas recuperadas na mesma transação. Quando não há pendências recuperáveis, processa o próximo lote da fonte normalmente. Assim, o cursor pode continuar avançando sem perder tickets que dependem de um cadastro posterior de cliente.
-
-A migration que introduz a fila zera o cursor uma única vez para recuperar registros que possam ter sido consumidos antes desse mecanismo existir. Tickets já persistidos não são duplicados, pois a sincronização é idempotente por `external_ticket_id` e `source_updated_at`.
-
-O dashboard exibe apenas um botão para ligar ou desligar a ingestão automática. As configurações de lote e intervalo permanecem no ambiente.
-
-Endpoints de controle:
+Endpoints:
 
 ```http
 GET   /ingestion/control
 PATCH /ingestion/control
 ```
 
-Exemplo de alteração:
+## Gestão de clientes
 
-```json
-{
-  "enabled": true
-}
+O backend e o frontend oferecem CRUD completo:
+
+```http
+POST   /customers
+GET    /customers
+GET    /customers/{customer_id}
+PATCH  /customers/{customer_id}
+DELETE /customers/{customer_id}
 ```
+
+A tela de clientes permite cadastrar, listar, pesquisar, editar, visualizar e excluir registros. O e-mail é único no banco e é utilizado para associar os tickets da fonte externa.
+
+## Dados persistidos
+
+Tabelas principais:
+
+- `customers`;
+- `tickets`;
+- `tags`;
+- `ticket_tags`;
+- `satisfaction_ratings`;
+- `ingestion_control`;
+- `users` e `auth_sessions` para autenticação.
+
+Campos de atendente e primeira resposta ficam no próprio ticket, pois não possuem ciclo de vida independente no escopo do desafio.
 
 ## Dashboard e métricas
 
@@ -138,33 +187,20 @@ GET /dashboard
 GET /metrics/customers
 ```
 
-Filtros compartilhados:
-
-- período;
-- clientes e e-mails;
-- status;
-- prioridades;
-- tags;
-- responsáveis;
-- satisfação;
-- existência de primeira resposta.
-
-Métricas:
+Indicadores:
 
 | Métrica | Definição |
 | --- | --- |
-| Volume de tickets | Quantidade de tickets dentro dos filtros. |
-| Frequência média | Média dos intervalos entre tickets consecutivos do mesmo cliente. |
+| Volume | Quantidade de tickets dentro dos filtros. |
+| Frequência média | Média dos intervalos entre tickets consecutivos do cliente. |
 | Assuntos principais | Tags com maior quantidade de tickets distintos. |
 | Taxa de resolução | Tickets `SOLVED` ou `CLOSED` divididos pelo total. |
-| Índice de satisfação | `GOOD / (GOOD + BAD)`. `OFFERED` e `UNOFFERED` não entram no denominador. |
-| Tempo médio até a primeira resposta | Média de `first_response_at - source_created_at` para respostas válidas. |
+| Satisfação | `GOOD / (GOOD + BAD)`. |
+| Primeira resposta | Média de `first_response_at - source_created_at`. |
 
-As faixas de tempo até a primeira resposta são indicadores operacionais e não representam conformidade de SLA.
+Filtros incluem período, cliente, status, prioridade, tags, atendente, satisfação e existência de primeira resposta.
 
-## Exportação de dados
-
-A exportação é estritamente de leitura. Nenhum endpoint de exportação cria, atualiza ou remove registros.
+## Exportações
 
 Endpoints:
 
@@ -180,62 +216,41 @@ Formatos suportados:
 - CSV;
 - XLSX.
 
-A exportação detalhada permite escolher campos e aplicar os mesmos filtros analíticos usados pelo dashboard. A pré-visualização é limitada, mas o arquivo final percorre todo o conjunto filtrado em lotes.
+## Autenticação
 
-A exportação de métricas reutiliza os mesmos cálculos do dashboard e oferece os escopos:
+O sistema utiliza:
 
-- visão geral;
-- por cliente.
-
-Os arquivos aplicam proteção contra formula injection. Campos compostos, como tags e satisfação, são serializados com segurança em CSV e XLSX.
+- access JWT curto em cookie `HttpOnly`;
+- refresh token opaco com rotação e hash HMAC-SHA256;
+- proteção CSRF para operações mutáveis;
+- validação de origem e cookies configuráveis.
 
 ## Frontend
 
 Telas implementadas:
 
 - login e registro;
-- páginas 401, 403, 404 e 500;
 - dashboard analítico;
-- tickets e clientes somente leitura;
+- tickets e detalhes;
+- CRUD completo de clientes;
 - métricas por cliente;
-- exportação de dados detalhados;
-- exportação de métricas.
+- exportação de dados e métricas;
+- páginas de erro.
 
-A tela `/exports` permite:
+Não existe upload manual de JSON pelo frontend. A fonte é preparada pelo serviço `mock-data` e consumida exclusivamente pelo worker.
 
-- escolher CSV ou XLSX;
-- selecionar campos ou métricas;
-- selecionar o escopo das métricas;
-- filtrar por período, status, prioridade, tags, clientes, responsáveis, satisfação e primeira resposta;
-- pré-visualizar até 50 registros detalhados;
-- baixar o conjunto completo filtrado.
-
-Não existe rota `/imports`, botão de importação ou leitura de arquivos JSON no frontend.
-
-### Desenvolvimento sem Docker
-
-```bash
-cp .env.example .env
-cd web
-npm install
-npm run dev
-```
-
-## Testes locais
-
-```bash
-uv sync --dev
-PYTHONPATH=. uv run pytest -q
-cd web
-npm install
-npm run build
-```
-
-Os dados dos testes são inseridos por fixtures internas, sem expor qualquer fluxo manual de ingestão na aplicação.
-
-## Estado e logs
+## Operação e diagnóstico
 
 ```bash
 docker compose ps -a
-docker compose logs web api worker migrations db
+docker compose logs migrations mock-data seed worker api web
+docker compose logs -f worker
 ```
+
+Primeiro lote esperado após ligar a ingestão:
+
+```text
+ticket_ingestion.batch.completed cursor=0 next_cursor=30 received=30 created=30
+```
+
+A carga completa de 300 registros termina em aproximadamente cinco minutos.
