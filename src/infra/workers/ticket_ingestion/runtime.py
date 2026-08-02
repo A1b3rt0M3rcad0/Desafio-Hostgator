@@ -40,11 +40,9 @@ class TicketIngestionWorker:
         )
         while not self._shutdown.is_set():
             try:
-                enabled = await self._is_enabled()
-                if not enabled:
+                if not await self._is_enabled():
                     await self._sleep(self._settings.control_poll_seconds)
                     continue
-
                 await self._process_next_batch()
                 await self._sleep(self._settings.interval_seconds)
             except asyncio.CancelledError:
@@ -53,7 +51,6 @@ class TicketIngestionWorker:
                 LOGGER.exception("ticket_ingestion.worker.failed")
                 await self._register_error(error)
                 await self._sleep(self._settings.interval_seconds)
-
         LOGGER.info("ticket_ingestion.worker.stopped")
 
     async def _is_enabled(self) -> bool:
@@ -70,31 +67,6 @@ class TicketIngestionWorker:
             if not control.enabled:
                 return
 
-            await control_repository.mark_processing()
-
-            pending = await ingestion_repository.load_resolvable_pending(
-                self._settings.batch_size
-            )
-            if pending:
-                result = await ingestion_repository.synchronize_batch(
-                    pending,
-                    source_version=control.source_version or "pending",
-                    received=len(pending),
-                    queue_unresolved=False,
-                    recovered=True,
-                )
-                await control_repository.complete_pending_batch()
-                LOGGER.info(
-                    "ticket_ingestion.pending.completed received=%s created=%s "
-                    "updated=%s unchanged=%s recovered=%s",
-                    result.received,
-                    result.created,
-                    result.updated,
-                    result.unchanged,
-                    result.recovered,
-                )
-                return
-
             source_version = await asyncio.to_thread(
                 self._source_repository.current_version
             )
@@ -103,6 +75,7 @@ class TicketIngestionWorker:
                 await control_repository.reset_source(source_version)
                 cursor = 0
 
+            await control_repository.mark_processing()
             batch = await asyncio.to_thread(
                 self._source_repository.read_batch,
                 cursor,
@@ -110,7 +83,6 @@ class TicketIngestionWorker:
             )
             result = await ingestion_repository.synchronize_batch(
                 batch.records,
-                source_version=batch.version,
                 invalid=batch.invalid,
                 received=batch.consumed,
             )
@@ -124,7 +96,7 @@ class TicketIngestionWorker:
             LOGGER.info(
                 "ticket_ingestion.batch.completed cursor=%s next_cursor=%s "
                 "received=%s created=%s updated=%s unchanged=%s unmatched=%s "
-                "conflicted=%s invalid=%s queued=%s exhausted=%s",
+                "conflicted=%s invalid=%s exhausted=%s",
                 cursor,
                 next_cursor,
                 result.received,
@@ -134,7 +106,6 @@ class TicketIngestionWorker:
                 result.unmatched,
                 result.conflicted,
                 result.invalid,
-                result.queued,
                 batch.exhausted,
             )
 
