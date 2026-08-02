@@ -9,13 +9,15 @@ from src.infra.database.analytics import SqlAlchemyAnalyticsQueryRepository
 from src.infra.database.exports import SqlAlchemyDataExportRepository
 from src.infra.database.transactional_handler import TransactionalHandler
 from src.infra.database.unit_of_work import UnitOfWork
-from src.infra.reports.writers import DefaultReportWriterFactory
+from src.infra.reports import DefaultReportWriterFactory
 from src.presentation.http.controllers.exports import (
     ExportDataController,
     ExportMetricsController,
     GetExportCatalogController,
     PreviewDataExportController,
 )
+
+_REPORT_WRITERS = DefaultReportWriterFactory()
 
 
 def get_export_catalog_composer() -> TransactionalHandler:
@@ -35,14 +37,12 @@ def preview_data_export_composer() -> TransactionalHandler:
 def export_data_composer() -> TransactionalHandler:
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyDataExportRepository(unit_of_work)
-    writer_factory = DefaultReportWriterFactory()
-    controller = ExportDataController(ExportData(repository, writer_factory))
+    controller = ExportDataController(ExportData(repository, _REPORT_WRITERS))
     return TransactionalHandler(unit_of_work, controller.handle)
 
 
 def export_metrics_composer() -> TransactionalHandler:
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyAnalyticsQueryRepository(unit_of_work)
-    writer_factory = DefaultReportWriterFactory()
-    controller = ExportMetricsController(ExportMetrics(repository, writer_factory))
+    controller = ExportMetricsController(ExportMetrics(repository, _REPORT_WRITERS))
     return TransactionalHandler(unit_of_work, controller.handle)
