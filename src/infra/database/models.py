@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 from uuid import UUID, uuid7
 
 from sqlalchemy import (
-    JSON,
     BigInteger,
     Boolean,
     DateTime,
@@ -55,81 +53,31 @@ class IngestionControl(Base):
 
     id: Mapped[int] = mapped_column(Integer(), primary_key=True, default=1)
     enabled: Mapped[bool] = mapped_column(
-        Boolean(),
-        nullable=False,
-        default=False,
-        server_default="0",
+        Boolean(), nullable=False, default=False, server_default="0"
     )
     cursor_position: Mapped[int] = mapped_column(
-        BigInteger(),
-        nullable=False,
-        default=0,
-        server_default="0",
+        BigInteger(), nullable=False, default=0, server_default="0"
     )
     source_version: Mapped[str | None] = mapped_column(String(255), nullable=True)
     worker_state: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="DISABLED",
-        server_default="DISABLED",
+        String(32), nullable=False, default="DISABLED", server_default="DISABLED"
     )
     last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text(), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(),
-        server_default=func.now(),
-        nullable=False,
+        DateTime(), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
+        DateTime(), server_default=func.now(), onupdate=func.now(), nullable=False
     )
-
-
-class IngestionPendingTicket(BaseModel):
-    __tablename__ = "ingestion_pending_tickets"
-    __table_args__ = (
-        UniqueConstraint(
-            "external_ticket_id",
-            name="uq_ingestion_pending_tickets_external_ticket_id",
-        ),
-    )
-
-    external_ticket_id: Mapped[int] = mapped_column(BigInteger(), nullable=False)
-    requester_external_id: Mapped[int] = mapped_column(
-        BigInteger(), index=True, nullable=False
-    )
-    requester_email: Mapped[str] = mapped_column(
-        String(255), index=True, nullable=False
-    )
-    source_version: Mapped[str] = mapped_column(String(255), nullable=False)
-    reason: Mapped[str] = mapped_column(String(32), nullable=False)
-    source_payload: Mapped[dict[str, Any]] = mapped_column(JSON(), nullable=False)
-    attempt_count: Mapped[int] = mapped_column(
-        Integer(),
-        nullable=False,
-        default=0,
-        server_default="0",
-    )
-    last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
 
 
 class User(BaseModel):
     __tablename__ = "users"
 
-    email: Mapped[str] = mapped_column(
-        String(255),
-        unique=True,
-        index=True,
-        nullable=False,
-    )
-    password_hash: Mapped[bytes] = mapped_column(
-        LargeBinary(255),
-        nullable=False,
-    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    password_hash: Mapped[bytes] = mapped_column(LargeBinary(255), nullable=False)
     auth_sessions: Mapped[list[AuthSession]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -152,19 +100,12 @@ class AuthSession(BaseModel):
         index=True,
         nullable=False,
     )
-    refresh_token_hash: Mapped[bytes] = mapped_column(
-        MySQLBinary(32),
-        nullable=False,
-    )
+    refresh_token_hash: Mapped[bytes] = mapped_column(MySQLBinary(32), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     compromised_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
-    rotation_counter: Mapped[int] = mapped_column(
-        Integer(),
-        nullable=False,
-        default=0,
-    )
+    rotation_counter: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user: Mapped[User] = relationship(back_populates="auth_sessions", lazy="joined")
@@ -252,10 +193,7 @@ class SatisfactionRating(BaseModel):
     offered_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     comment: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
-    ticket: Mapped[Ticket] = relationship(
-        back_populates="satisfaction_rating",
-        lazy="joined",
-    )
+    ticket: Mapped[Ticket] = relationship(back_populates="satisfaction_rating", lazy="joined")
 
 
 class Tag(BaseModel):
