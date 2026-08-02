@@ -9,4 +9,4 @@ RUN uv sync --no-dev
 
 COPY . .
 
-CMD ["sh", "-c", "uv run python scripts/wait_for_database.py && uv run alembic upgrade head"]
+CMD ["uv", "run", "alembic", "upgrade", "head"]
