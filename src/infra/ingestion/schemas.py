@@ -70,8 +70,6 @@ class BatchIngestionResult(BaseModel):
     unmatched: int
     conflicted: int
     invalid: int = 0
-    queued: int = 0
-    recovered: int = 0
 
 
 class WorkerControl(IngestionControlState):
