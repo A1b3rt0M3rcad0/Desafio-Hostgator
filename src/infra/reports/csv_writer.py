@@ -16,6 +16,9 @@ class CsvReportWriter(ReportWriter):
         sheet_name: str,
     ) -> bytes:
         del sheet_name
+        if not columns:
+            raise ValueError("CSV report requires at least one column")
+
         buffer = io.StringIO(newline="")
         writer = csv.DictWriter(
             buffer,
