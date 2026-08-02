@@ -64,11 +64,13 @@ class SourceBatch(BaseModel):
 
 class BatchIngestionResult(BaseModel):
     received: int
+    customers_created: int = 0
+    customers_updated: int = 0
     created: int
     updated: int
     unchanged: int
-    unmatched: int
-    conflicted: int
+    unmatched: int = 0
+    conflicted: int = 0
     invalid: int = 0
 
 
