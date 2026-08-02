@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.ingestion_control import IngestionControlRepository
@@ -78,19 +78,19 @@ class SqlAlchemyIngestionControlRepository(
         control.last_error = None
         await self._session.flush()
 
-    async def register_error(self, message: str) -> None:
-        control = await self._get_model(for_update=True)
-        control.worker_state = "ERROR"
-        control.last_heartbeat_at = self._now()
-        control.last_error = message[:2000]
-        await self._session.flush()
-
     async def reset_source(self, source_version: str) -> None:
         control = await self._get_model(for_update=True)
         control.cursor_position = 0
         control.source_version = source_version
         control.worker_state = "IDLE"
         control.last_error = None
+        await self._session.flush()
+
+    async def register_error(self, message: str) -> None:
+        control = await self._get_model(for_update=True)
+        control.worker_state = "ERROR"
+        control.last_heartbeat_at = self._now()
+        control.last_error = message[:2000]
         await self._session.flush()
 
     async def _get_model(self, *, for_update: bool = False) -> IngestionControl:
@@ -129,20 +129,18 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
         received: int | None = None,
     ) -> BatchIngestionResult:
         deduplicated = self._deduplicate(records)
-        customers = await self._resolve_customers(deduplicated)
+        (
+            customers,
+            customers_created,
+            customers_updated,
+            conflicted,
+        ) = await self._upsert_customers(deduplicated)
 
         matched: list[tuple[TicketSourceRecord, Customer]] = []
-        unmatched = 0
-        conflicted = 0
         for record in deduplicated:
             customer = customers.get(record.requester_email)
-            if customer is None:
-                unmatched += 1
-                continue
-            if customer.external_requester_id != record.requester_id:
-                conflicted += 1
-                continue
-            matched.append((record, customer))
+            if customer is not None:
+                matched.append((record, customer))
 
         external_ids = [record.ticket_id for record, _ in matched]
         existing_tickets: list[Ticket] = []
@@ -200,30 +198,98 @@ class SqlAlchemyTicketIngestionRepository(_SqlAlchemyIngestionRepository):
 
         return BatchIngestionResult(
             received=received if received is not None else len(records) + invalid,
+            customers_created=customers_created,
+            customers_updated=customers_updated,
             created=created,
             updated=updated,
             unchanged=unchanged,
-            unmatched=unmatched,
+            unmatched=0,
             conflicted=conflicted,
             invalid=invalid,
         )
 
-    async def _resolve_customers(
+    async def _upsert_customers(
         self,
         records: list[TicketSourceRecord],
-    ) -> dict[str, Customer]:
-        emails = {record.requester_email for record in records}
-        if not emails:
-            return {}
-        customers = (
-            await self._session.execute(
-                select(Customer).where(func.lower(Customer.requester_email).in_(emails))
-            )
-        ).scalars().all()
-        return {
+    ) -> tuple[dict[str, Customer], int, int, int]:
+        identities: dict[str, TicketSourceRecord] = {}
+        source_ids: dict[int, str] = {}
+        conflicted = 0
+
+        for record in records:
+            current = identities.get(record.requester_email)
+            if current is not None and current.requester_id != record.requester_id:
+                conflicted += 1
+                continue
+            current_email = source_ids.get(record.requester_id)
+            if current_email is not None and current_email != record.requester_email:
+                conflicted += 1
+                continue
+            identities[record.requester_email] = record
+            source_ids[record.requester_id] = record.requester_email
+
+        emails = set(identities)
+        external_ids = {record.requester_id for record in identities.values()}
+        existing: list[Customer] = []
+        if emails or external_ids:
+            existing = (
+                await self._session.execute(
+                    select(Customer).where(
+                        or_(
+                            func.lower(Customer.requester_email).in_(emails),
+                            Customer.external_requester_id.in_(external_ids),
+                        )
+                    )
+                )
+            ).scalars().all()
+
+        by_email = {
             customer.requester_email.strip().lower(): customer
-            for customer in customers
+            for customer in existing
         }
+        by_external_id = {
+            customer.external_requester_id: customer for customer in existing
+        }
+        resolved: dict[str, Customer] = {}
+        created = 0
+        updated = 0
+
+        for email, record in identities.items():
+            email_match = by_email.get(email)
+            id_match = by_external_id.get(record.requester_id)
+
+            if (
+                email_match is not None
+                and id_match is not None
+                and email_match.id != id_match.id
+            ):
+                conflicted += 1
+                continue
+            customer = email_match or id_match
+            if customer is not None:
+                if (
+                    customer.requester_email.strip().lower() != email
+                    or customer.external_requester_id != record.requester_id
+                ):
+                    conflicted += 1
+                    continue
+                if customer.requester_name != record.requester_name:
+                    customer.requester_name = record.requester_name
+                    updated += 1
+            else:
+                customer = Customer(
+                    external_requester_id=record.requester_id,
+                    requester_name=record.requester_name,
+                    requester_email=email,
+                )
+                self._session.add(customer)
+                by_email[email] = customer
+                by_external_id[record.requester_id] = customer
+                created += 1
+            resolved[email] = customer
+
+        await self._session.flush()
+        return resolved, created, updated, conflicted
 
     async def _resolve_tags(
         self,
