@@ -64,6 +64,19 @@ def upgrade() -> None:
         unique=False,
     )
 
+    # Re-read the source once so records skipped before this queue existed are
+    # persisted as pending entries. Existing tickets remain safe because the
+    # ingestion repository is idempotent by external ticket ID and updated_at.
+    op.execute(
+        sa.text(
+            "UPDATE ingestion_control "
+            "SET cursor_position = 0, source_version = NULL, "
+            "worker_state = CASE WHEN enabled = 1 THEN 'IDLE' ELSE 'DISABLED' END, "
+            "last_error = NULL "
+            "WHERE id = 1"
+        )
+    )
+
 
 def downgrade() -> None:
     op.drop_index(
