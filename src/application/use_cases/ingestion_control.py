@@ -4,7 +4,6 @@ from src.application.contracts.ingestion_control import (
 )
 from src.application.contracts.repositories import TicketRepository
 from src.application.dtos.ingestion_control import (
-    GetIngestionControlInput,
     GetIngestionControlOutput,
     UpdateIngestionControlInput,
     UpdateIngestionControlOutput,
@@ -15,11 +14,7 @@ class GetIngestionControl(GetIngestionControlContract):
     def __init__(self, repository: TicketRepository) -> None:
         self._repository = repository
 
-    async def execute(
-        self,
-        input_dto: GetIngestionControlInput,
-    ) -> GetIngestionControlOutput:
-        del input_dto
+    async def execute(self) -> GetIngestionControlOutput:
         control = await self._repository.get_ingestion_control()
         return GetIngestionControlOutput(control=control)
 
