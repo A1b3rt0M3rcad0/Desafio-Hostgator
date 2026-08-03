@@ -4,10 +4,11 @@ import base64
 from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, overload
+from typing import Any, cast, overload
 from uuid import UUID
 
 from sqlalchemy import and_, case, delete, exists, func, literal_column, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.repositories import (
@@ -190,13 +191,16 @@ class SqlAlchemyAuthSessionRepository(_SqlAlchemyRepository, AuthSessionReposito
 
     async def revoke_all_by_user(self, user_id: UUID) -> int:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        result = await self._session.execute(
-            update(AuthSession)
-            .where(
-                AuthSession.user_id == user_id,
-                AuthSession.revoked_at.is_(None),
-            )
-            .values(revoked_at=now)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(
+                update(AuthSession)
+                .where(
+                    AuthSession.user_id == user_id,
+                    AuthSession.revoked_at.is_(None),
+                )
+                .values(revoked_at=now)
+            ),
         )
         await self._session.flush()
         return result.rowcount or 0

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock
@@ -183,8 +184,8 @@ async def _run_dashboard_scenario() -> None:
         tag_repository=tag_repository,
     ).execute(
         DashboardInput(
-            from_at="2026-07-10T00:00:00Z",
-            to_at="2026-07-12T00:00:00Z",
+            from_at=datetime(2026, 7, 10, tzinfo=timezone.utc),
+            to_at=datetime(2026, 7, 12, tzinfo=timezone.utc),
             timeline_limit=1,
             top_topics_limit=8,
         )
@@ -233,7 +234,7 @@ async def _run_customer_metrics_scenario() -> None:
         TicketRepository,
         SimpleNamespace(
             page_customer_analytics=AsyncMock(
-            return_value=CustomerAnalyticsQueryPage(
+                return_value=CustomerAnalyticsQueryPage(
                 items=[
                     CustomerAnalyticsRow(
                         customer_id=CUSTOMER_ID,
@@ -255,8 +256,8 @@ async def _run_customer_metrics_scenario() -> None:
                 total=1,
                 has_next=False,
                 has_previous=False,
-            )
-        )
+                )
+            ),
         ),
     )
 

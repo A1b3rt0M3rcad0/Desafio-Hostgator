@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from dotenv import load_dotenv
 
@@ -62,9 +62,13 @@ ACCESS_TOKEN_EXPIRES_IN = int(
 REFRESH_TOKEN_EXPIRES_IN = int(
     os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"),
 ) * 24 * 60 * 60
-COOKIE_SAMESITE = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
-if COOKIE_SAMESITE not in {"lax", "strict", "none"}:
+cookie_samesite_value = os.getenv("AUTH_COOKIE_SAMESITE", "lax").lower()
+if cookie_samesite_value not in {"lax", "strict", "none"}:
     raise RuntimeError("AUTH_COOKIE_SAMESITE must be lax, strict or none.")
+COOKIE_SAMESITE = cast(
+    Literal["lax", "strict", "none"],
+    cookie_samesite_value,
+)
 
 _allowed_origins = _as_origins(os.getenv("CORS_ALLOWED_ORIGINS"))
 _trusted_origins = _as_origins(
