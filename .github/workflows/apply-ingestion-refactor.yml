@@ -7,6 +7,12 @@ on:
     paths:
       - apply_ingestion_refactor.py
       - .github/workflows/apply-ingestion-refactor.yml
+  pull_request:
+    branches:
+      - master
+    paths:
+      - apply_ingestion_refactor.py
+      - .github/workflows/apply-ingestion-refactor.yml
 
 permissions:
   contents: write
