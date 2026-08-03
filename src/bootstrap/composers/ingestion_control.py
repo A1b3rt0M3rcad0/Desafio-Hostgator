@@ -1,10 +1,8 @@
-
 from src.application.use_cases.ingestion_control import (
     GetIngestionControl,
     IngestTicketBatch,
     UpdateIngestionControl,
 )
-from src.bootstrap.composers.database import DATABASE_ENGINE
 from src.infra.database.repositories import (
     SqlAlchemyCustomerRepository,
     SqlAlchemySatisfactionRatingRepository,
@@ -21,6 +19,8 @@ from src.presentation.http.controllers.ingestion_control import (
 
 
 def get_ingestion_control_composer() -> TransactionalHandler:
+    from src.bootstrap.composers.database import DATABASE_ENGINE
+
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyTicketRepository(unit_of_work)
     use_case = GetIngestionControl(repository)
@@ -29,6 +29,8 @@ def get_ingestion_control_composer() -> TransactionalHandler:
 
 
 def update_ingestion_control_composer() -> TransactionalHandler:
+    from src.bootstrap.composers.database import DATABASE_ENGINE
+
     unit_of_work = UnitOfWork(DATABASE_ENGINE)
     repository = SqlAlchemyTicketRepository(unit_of_work)
     use_case = UpdateIngestionControl(repository)
