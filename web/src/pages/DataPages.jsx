@@ -1,35 +1,112 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../services/api.js';
 import { useResource } from '../hooks/useResource.js';
 import { Badge, DetailLink, ErrorState, PageHeader, Pagination, SearchField, Spinner } from '../components/UI.jsx';
 import { DataTable } from '../components/DataTable.jsx';
-import { formatDate } from '../utils/format.js';
+import { formatDate, humanize } from '../utils/format.js';
 
-function useCursorPage(loader) {
-  const [cursor, setCursor] = useState(null);
-  const resource = useResource(() => loader({ page_size: 25, cursor }), [cursor]);
+function useCursorPage(loader, query = {}) {
+  const queryKey = JSON.stringify(query);
+  const [navigation, setNavigation] = useState({ queryKey, cursor: null });
+  const cursor = navigation.queryKey === queryKey ? navigation.cursor : null;
+
+  useEffect(() => {
+    setNavigation((current) => (
+      current.queryKey === queryKey
+        ? current
+        : { queryKey, cursor: null }
+    ));
+  }, [queryKey]);
+
+  const resource = useResource(
+    () => loader({ ...query, page_size: 25, cursor }),
+    [cursor, queryKey],
+  );
   return {
     ...resource,
-    previous: () => setCursor(resource.data?.previous_cursor || null),
-    next: () => setCursor(resource.data?.next_cursor || null),
+    previous: () => setNavigation({ queryKey, cursor: resource.data?.previous_cursor || null }),
+    next: () => setNavigation({ queryKey, cursor: resource.data?.next_cursor || null }),
   };
 }
 
+const STATUS_OPTIONS = ['NEW', 'OPEN', 'PENDING', 'HOLD', 'SOLVED', 'CLOSED'];
+const PRIORITY_OPTIONS = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
+const EMPTY_TICKET_FILTERS = {
+  status: '',
+  priority: '',
+  createdFrom: '',
+  createdTo: '',
+};
+
+function dateBoundary(value, endOfDay = false) {
+  if (!value) return undefined;
+  const time = endOfDay ? '23:59:59.999' : '00:00:00.000';
+  return new Date(`${value}T${time}`).toISOString();
+}
+
 export function TicketsPage() {
-  const page = useCursorPage(api.listTickets);
   const [search, setSearch] = useState('');
+  const [filterDraft, setFilterDraft] = useState(EMPTY_TICKET_FILTERS);
+  const [filters, setFilters] = useState(EMPTY_TICKET_FILTERS);
+  const [filterError, setFilterError] = useState(null);
+  const query = useMemo(() => ({
+    statuses: filters.status ? [filters.status] : undefined,
+    priorities: filters.priority ? [filters.priority] : undefined,
+    from_at: dateBoundary(filters.createdFrom),
+    to_at: dateBoundary(filters.createdTo, true),
+  }), [filters]);
+  const page = useCursorPage(api.listTickets, query);
   const rows = useMemo(() => (page.data?.items || []).filter((ticket) => `${ticket.subject} ${ticket.description} ${ticket.assignee_name || ''}`.toLowerCase().includes(search.toLowerCase())), [page.data, search]);
+
+  const updateFilter = (field, value) => {
+    setFilterDraft((current) => ({ ...current, [field]: value }));
+  };
+
+  const applyFilters = (event) => {
+    event.preventDefault();
+    if (
+      filterDraft.createdFrom
+      && filterDraft.createdTo
+      && filterDraft.createdFrom > filterDraft.createdTo
+    ) {
+      setFilterError('A data inicial não pode ser posterior à data final.');
+      return;
+    }
+    setFilterError(null);
+    setFilters(filterDraft);
+  };
+
+  const clearFilters = () => {
+    setFilterDraft(EMPTY_TICKET_FILTERS);
+    setFilters(EMPTY_TICKET_FILTERS);
+    setFilterError(null);
+  };
+
   if (page.loading) return <Spinner label="Carregando tickets" />;
   if (page.error) return <ErrorState error={page.error} onRetry={page.reload} />;
-  return <><PageHeader eyebrow="Dados" title="Tickets" description="Tickets coletados da fonte HelpDesk e associados aos clientes identificados na ingestão." /><div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Buscar assunto, descrição ou atendente" /></div><DataTable rows={rows} emptyTitle="Nenhum ticket encontrado" columns={[
-    { key: 'external_ticket_id', label: 'Ticket' },
-    { key: 'subject', label: 'Assunto' },
-    { key: 'status', label: 'Status', render: (row) => <Badge value={row.status} /> },
-    { key: 'priority', label: 'Prioridade', render: (row) => <Badge value={row.priority} /> },
-    { key: 'assignee_name', label: 'Atendente' },
-    { key: 'source_updated_at', label: 'Atualizado', render: (row) => formatDate(row.source_updated_at) },
-    { key: 'actions', label: '', render: (row) => <DetailLink to={`/tickets/${row.id}`} /> },
-  ]} /><Pagination page={page.data} onPrevious={page.previous} onNext={page.next} /></>;
+  return <>
+    <PageHeader eyebrow="Dados" title="Tickets" description="Tickets coletados da fonte HelpDesk e associados aos clientes identificados na ingestão." />
+    <form className="data-filters" onSubmit={applyFilters}>
+      <label><span>Status</span><select value={filterDraft.status} onChange={(event) => updateFilter('status', event.target.value)}><option value="">Todos</option>{STATUS_OPTIONS.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></label>
+      <label><span>Prioridade</span><select value={filterDraft.priority} onChange={(event) => updateFilter('priority', event.target.value)}><option value="">Todas</option>{PRIORITY_OPTIONS.map((value) => <option key={value} value={value}>{humanize(value)}</option>)}</select></label>
+      <label><span>Criado a partir de</span><input type="date" value={filterDraft.createdFrom} onChange={(event) => updateFilter('createdFrom', event.target.value)} /></label>
+      <label><span>Criado até</span><input type="date" value={filterDraft.createdTo} onChange={(event) => updateFilter('createdTo', event.target.value)} /></label>
+      <div className="data-filter-actions"><button className="button button-secondary" type="button" onClick={clearFilters}>Limpar</button><button className="button button-primary" type="submit">Aplicar filtros</button></div>
+      {filterError && <div className="form-error data-filter-error" role="alert">{filterError}</div>}
+    </form>
+    <div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Buscar assunto, descrição ou atendente nesta página" /></div>
+    <DataTable rows={rows} emptyTitle="Nenhum ticket encontrado" columns={[
+      { key: 'external_ticket_id', label: 'Ticket' },
+      { key: 'subject', label: 'Assunto' },
+      { key: 'status', label: 'Status', render: (row) => <Badge value={row.status} /> },
+      { key: 'priority', label: 'Prioridade', render: (row) => <Badge value={row.priority} /> },
+      { key: 'assignee_name', label: 'Atendente' },
+      { key: 'source_created_at', label: 'Criado em', render: (row) => formatDate(row.source_created_at) },
+      { key: 'source_updated_at', label: 'Atualizado', render: (row) => formatDate(row.source_updated_at) },
+      { key: 'actions', label: '', render: (row) => <DetailLink to={`/tickets/${row.id}`} /> },
+    ]} />
+    <Pagination page={page.data} onPrevious={page.previous} onNext={page.next} />
+  </>;
 }
 
 const EMPTY_CUSTOMER = {
