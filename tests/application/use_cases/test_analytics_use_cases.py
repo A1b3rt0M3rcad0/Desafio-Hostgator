@@ -33,7 +33,10 @@ from src.application.dtos.analytics import (
     TopicAggregate,
     TopicCount,
 )
-from src.application.use_cases.analytics import GetDashboardOverview, ListCustomerMetrics
+from src.application.use_cases.analytics import (
+    GetDashboardOverview,
+    ListCustomerMetrics,
+)
 
 
 CUSTOMER_ID = UUID("0198f17c-1a23-7000-8000-000000000001")
@@ -200,9 +203,12 @@ async def _run_dashboard_scenario() -> None:
 
     assert len(output.charts.operation_timeseries) == 1
     assert output.charts.priority_breakdown[0].share == pytest.approx(1)
-    assert [topic.share for topic in output.charts.top_topics] == pytest.approx([0.5, 0.5])
+    assert [topic.share for topic in output.charts.top_topics] == pytest.approx(
+        [0.5, 0.5]
+    )
     assert sum(
-        item.share or 0 for item in output.charts.first_response_distribution
+        item.share or 0
+        for item in output.charts.first_response_distribution
     ) == pytest.approx(1)
     assert output.charts.top_topics[0].previous_ticket_count == 1
     assert output.charts.top_topics[1].previous_ticket_count == 0
@@ -235,33 +241,37 @@ async def _run_customer_metrics_scenario() -> None:
         SimpleNamespace(
             page_customer_analytics=AsyncMock(
                 return_value=CustomerAnalyticsQueryPage(
-                items=[
-                    CustomerAnalyticsRow(
-                        customer_id=CUSTOMER_ID,
-                        external_requester_id=100,
-                        requester_name="Cliente",
-                        requester_email="cliente@example.com",
-                        ticket_volume=3,
-                        resolved_tickets=2,
-                        good_ratings=1,
-                        bad_ratings=1,
-                        average_first_response_seconds=1200,
-                        average_recurrence_seconds=3600,
-                        recurrence_sample_intervals=2,
-                        top_topics=[TopicCount(tag="dns", ticket_count=2)],
-                    )
-                ],
-                page=1,
-                page_size=25,
-                total=1,
-                has_next=False,
-                has_previous=False,
+                    items=[
+                        CustomerAnalyticsRow(
+                            customer_id=CUSTOMER_ID,
+                            external_requester_id=100,
+                            requester_name="Cliente",
+                            requester_email="cliente@example.com",
+                            ticket_volume=3,
+                            resolved_tickets=2,
+                            good_ratings=1,
+                            bad_ratings=1,
+                            average_first_response_seconds=1200,
+                            average_recurrence_seconds=3600,
+                            recurrence_sample_intervals=2,
+                            top_topics=[
+                                TopicCount(tag="dns", ticket_count=2)
+                            ],
+                        )
+                    ],
+                    page=1,
+                    page_size=25,
+                    total=1,
+                    has_next=False,
+                    has_previous=False,
                 )
             ),
         ),
     )
 
-    output = await ListCustomerMetrics(repository).execute(CustomerMetricsInput())
+    output = await ListCustomerMetrics(repository).execute(
+        CustomerMetricsInput()
+    )
 
     assert output.items[0].resolution_rate == pytest.approx(2 / 3)
     assert output.items[0].satisfaction_rate == pytest.approx(0.5)
