@@ -9,6 +9,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -106,6 +107,9 @@ class AuthSession(BaseModel):
 
 class Customer(BaseModel):
     __tablename__ = "customers"
+    __table_args__ = (
+        Index("ix_customers_requester_name_id", "requester_name", "id"),
+    )
 
     external_requester_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
     requester_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -119,6 +123,36 @@ class Customer(BaseModel):
 
 class Ticket(BaseModel):
     __tablename__ = "tickets"
+    __table_args__ = (
+        Index("ix_tickets_source_created_at", "source_created_at"),
+        Index(
+            "ix_tickets_customer_source_created_at",
+            "customer_id",
+            "source_created_at",
+        ),
+        Index(
+            "ix_tickets_status_source_created_at",
+            "status",
+            "source_created_at",
+        ),
+        Index(
+            "ix_tickets_priority_source_created_at",
+            "priority",
+            "source_created_at",
+        ),
+        Index(
+            "ix_tickets_assignee_source_created_at",
+            "assignee_external_id",
+            "source_created_at",
+        ),
+        Index("ix_tickets_assignee_name", "assignee_name"),
+        Index(
+            "ft_tickets_subject_description",
+            "subject",
+            "description",
+            mysql_prefix="FULLTEXT",
+        ),
+    )
 
     customer_id: Mapped[UUID] = mapped_column(
         SQLAlchemyUUID(as_uuid=True),
