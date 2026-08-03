@@ -37,4 +37,6 @@ jobs:
       - name: Typecheck
         run: pyright src tests
       - name: Targeted tests
+        env:
+          PYTHONPATH: .
         run: pytest -q tests/application/use_cases/test_analytics_use_cases.py
