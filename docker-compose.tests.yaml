@@ -35,6 +35,8 @@ services:
     user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
     environment:
       HOME: /tmp
+      LOGNAME: testuser
+      USER: testuser
       COVERAGE_FILE: /tmp/.coverage
       MYSQL_URL_CONNECTION_TEST: mysql+aiomysql://root:test-only-password@db_test:3306/desafio_hostgator_test
     volumes:
@@ -52,6 +54,8 @@ services:
     user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
     environment:
       HOME: /tmp
+      LOGNAME: testuser
+      USER: testuser
       COVERAGE_FILE: /tmp/.coverage
     volumes:
       - ./reports:/reports
