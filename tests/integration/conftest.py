@@ -45,7 +45,7 @@ def _test_database_url() -> str:
     return raw_url
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def integration_engine() -> AsyncIterator[AsyncEngine]:
     engine = create_async_engine(
         _test_database_url(),
