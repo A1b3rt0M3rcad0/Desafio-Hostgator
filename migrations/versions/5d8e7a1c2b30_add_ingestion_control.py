@@ -32,6 +32,7 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("0"),
         ),
+        sa.Column("source_version", sa.String(length=255), nullable=True),
         sa.Column(
             "worker_state",
             sa.String(length=32),
@@ -41,6 +42,18 @@ def upgrade() -> None:
         sa.Column("last_heartbeat_at", sa.DateTime(), nullable=True),
         sa.Column("last_success_at", sa.DateTime(), nullable=True),
         sa.Column("last_error", sa.Text(), nullable=True),
+        sa.Column(
+            "created_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     op.execute(
