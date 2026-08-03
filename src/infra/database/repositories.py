@@ -525,8 +525,8 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
             if boolean_query:
                 search_conditions.append(
                     mysql_match(
-                        Ticket.subject,
-                        Ticket.description,
+                        cast(Any, Ticket.subject),
+                        cast(Any, Ticket.description),
                         against=boolean_query,
                     ).in_boolean_mode()
                 )

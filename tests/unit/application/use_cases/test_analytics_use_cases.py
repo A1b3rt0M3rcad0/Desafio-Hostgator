@@ -34,6 +34,7 @@ from src.application.dtos.analytics import (
     TopicCount,
 )
 from src.application.use_cases.analytics import (
+    AnalyticsCalculator,
     GetDashboardOverview,
     ListCustomerMetrics,
 )
@@ -41,6 +42,7 @@ from src.application.use_cases.analytics import (
 
 CUSTOMER_ID = UUID("0198f17c-1a23-7000-8000-000000000001")
 TAG_ID = UUID("0198f17c-1a23-7000-8000-000000000002")
+pytestmark = pytest.mark.unit
 
 
 def test_dashboard_use_case_orchestrates_repositories_and_owns_business_rules() -> None:
@@ -276,3 +278,23 @@ async def _run_customer_metrics_scenario() -> None:
     assert output.items[0].resolution_rate == pytest.approx(2 / 3)
     assert output.items[0].satisfaction_rate == pytest.approx(0.5)
     assert output.items[0].top_topics[0].tag == "dns"
+
+
+def test_empty_dashboard_metrics_do_not_divide_by_zero() -> None:
+    empty = DashboardPeriodSnapshot(
+        total_tickets=0,
+        resolved_tickets=0,
+        responded_tickets=0,
+        good_ratings=0,
+        bad_ratings=0,
+        recurrence_sample_intervals=0,
+        customers_with_recurrence=0,
+    )
+
+    metrics = AnalyticsCalculator.build_metrics(empty, empty)
+
+    assert metrics.ticket_volume.change_percent is None
+    assert metrics.resolution_rate.rate is None
+    assert metrics.resolution_rate.change_percent is None
+    assert metrics.satisfaction_rate.rate is None
+    assert metrics.average_first_response.unanswered_tickets == 0

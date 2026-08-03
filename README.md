@@ -255,3 +255,42 @@ ticket_ingestion.completed cycle=2 generated=30 customers_created=30 tickets_cre
 ```
 
 Depois que os 500 clientes da base já tiverem aparecido, novas rodadas reutilizam esses clientes e continuam adicionando 30 tickets a cada intervalo.
+
+## Qualidade e testes
+
+O CI executa três verificações independentes:
+
+- Pyright em modo `standard` sobre `src/` e `tests/`;
+- testes unitários isolados, com cobertura mínima de 10% sobre `src/`;
+- testes de integração contra um MySQL 8 descartável e migrado até o `head` do Alembic.
+
+`data/` não faz parte do escopo de cobertura. Ele é copiado para a imagem unitária apenas porque o módulo do worker o importa em runtime.
+
+Type checking local:
+
+```bash
+uv sync --frozen --group dev
+uv run --frozen pyright
+```
+
+Testes unitários em container:
+
+```bash
+mkdir -p reports
+TEST_UID="$(id -u)" TEST_GID="$(id -g)" \
+  docker compose -f docker-compose.tests.yaml run --rm --build unit_tests
+```
+
+Testes de integração em container:
+
+```bash
+mkdir -p reports
+TEST_UID="$(id -u)" TEST_GID="$(id -g)" \
+  docker compose -f docker-compose.tests.yaml up \
+    --build \
+    --exit-code-from integration_tests \
+    integration_tests
+docker compose -f docker-compose.tests.yaml down -v --remove-orphans
+```
+
+O banco de integração não publica porta, usa armazenamento temporário e aceita apenas `MYSQL_URL_CONNECTION_TEST` apontando para um database cujo nome termine em `_test`. Os relatórios JUnit e Coverage XML são gravados em `reports/`.

@@ -21,3 +21,9 @@ data/tickets.json.tmp
 # Frontend
 web/node_modules/
 web/dist/
+
+# Test and coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+reports/
