@@ -83,6 +83,15 @@ jobs:
               --exit-code-from integration_tests \
               integration_tests
 
+      - name: Show integration service logs on failure
+        if: failure()
+        run: |
+          docker compose --file docker-compose.tests.yaml logs \
+            --no-color \
+            db_test \
+            migrations_test \
+            integration_tests
+
       - name: Clean test containers and database
         if: always()
         run: docker compose --file docker-compose.tests.yaml down --volumes --remove-orphans
