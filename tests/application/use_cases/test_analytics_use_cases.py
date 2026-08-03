@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
 
+from src.application.contracts.repositories import (
+    CustomerRepository,
+    TagRepository,
+    TicketRepository,
+)
 from src.application.dtos.analytics import (
+    AnalyticsFilters,
     AssigneeFilterOption,
     CustomerAnalyticsQueryPage,
     CustomerAnalyticsRow,
@@ -130,28 +137,44 @@ async def _run_dashboard_scenario() -> None:
         ],
     )
 
-    ticket_repository = SimpleNamespace(
-        get_dashboard_period_snapshot=AsyncMock(side_effect=[current, previous]),
-        get_dashboard_operational_snapshot=AsyncMock(return_value=operational),
-        list_assignee_options=AsyncMock(
-            return_value=[AssigneeFilterOption(external_id=91, name=None)]
+    get_dashboard_period_snapshot = AsyncMock(
+        side_effect=[current, previous]
+    )
+    ticket_repository = cast(
+        TicketRepository,
+        SimpleNamespace(
+            get_dashboard_period_snapshot=get_dashboard_period_snapshot,
+            get_dashboard_operational_snapshot=AsyncMock(
+                return_value=operational
+            ),
+            list_assignee_options=AsyncMock(
+                return_value=[
+                    AssigneeFilterOption(external_id=91, name=None)
+                ]
+            ),
         ),
     )
-    customer_repository = SimpleNamespace(
-        list_filter_options=AsyncMock(
-            return_value=[
-                CustomerFilterOption(
-                    id=CUSTOMER_ID,
-                    requester_name="Cliente",
-                    requester_email="cliente@example.com",
-                )
-            ]
-        )
+    customer_repository = cast(
+        CustomerRepository,
+        SimpleNamespace(
+            list_filter_options=AsyncMock(
+                return_value=[
+                    CustomerFilterOption(
+                        id=CUSTOMER_ID,
+                        requester_name="Cliente",
+                        requester_email="cliente@example.com",
+                    )
+                ]
+            )
+        ),
     )
-    tag_repository = SimpleNamespace(
-        list_filter_options=AsyncMock(
-            return_value=[TagFilterOption(id=TAG_ID, name="dns")]
-        )
+    tag_repository = cast(
+        TagRepository,
+        SimpleNamespace(
+            list_filter_options=AsyncMock(
+                return_value=[TagFilterOption(id=TAG_ID, name="dns")]
+            )
+        ),
     )
 
     output = await GetDashboardOverview(
@@ -191,8 +214,13 @@ async def _run_dashboard_scenario() -> None:
     assert output.summary.top_driver is not None
     assert output.summary.top_driver.label == "dns"
 
-    assert ticket_repository.get_dashboard_period_snapshot.await_count == 2
-    previous_filters = ticket_repository.get_dashboard_period_snapshot.await_args_list[1].args[0]
+    assert get_dashboard_period_snapshot.await_count == 2
+    previous_filters = cast(
+        AnalyticsFilters,
+        get_dashboard_period_snapshot.await_args_list[1].args[0],
+    )
+    assert previous_filters.to_at is not None
+    assert output.scope.from_at is not None
     assert previous_filters.to_at < output.scope.from_at
 
 
@@ -201,8 +229,10 @@ def test_customer_metrics_use_case_calculates_rates_from_query_data() -> None:
 
 
 async def _run_customer_metrics_scenario() -> None:
-    repository = SimpleNamespace(
-        page_customer_analytics=AsyncMock(
+    repository = cast(
+        TicketRepository,
+        SimpleNamespace(
+            page_customer_analytics=AsyncMock(
             return_value=CustomerAnalyticsQueryPage(
                 items=[
                     CustomerAnalyticsRow(
@@ -227,6 +257,7 @@ async def _run_customer_metrics_scenario() -> None:
                 has_previous=False,
             )
         )
+        ),
     )
 
     output = await ListCustomerMetrics(repository).execute(CustomerMetricsInput())

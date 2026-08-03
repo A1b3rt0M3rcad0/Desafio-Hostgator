@@ -4,7 +4,7 @@ import base64
 from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, overload
 from uuid import UUID
 
 from sqlalchemy import and_, case, delete, exists, func, literal_column, or_, select, update
@@ -68,6 +68,14 @@ from src.infra.database.models import (
     User,
 )
 from src.infra.database.unit_of_work import UnitOfWork
+
+
+@overload
+def _naive_utc(value: datetime) -> datetime: ...
+
+
+@overload
+def _naive_utc(value: None) -> None: ...
 
 
 def _naive_utc(value: datetime | None) -> datetime | None:
@@ -1073,10 +1081,14 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
                 .order_by(Ticket.assignee_name.asc())
             )
         ).all()
-        return [
-            AssigneeFilterOption(external_id=external_id, name=name)
-            for external_id, name in rows
-        ]
+        options: list[AssigneeFilterOption] = []
+        for external_id, name in rows:
+            if external_id is None:
+                continue
+            options.append(
+                AssigneeFilterOption(external_id=external_id, name=name)
+            )
+        return options
 
     async def count_export_rows(self, filters: AnalyticsFilters) -> int:
         return int(
@@ -1179,10 +1191,14 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
 
     def _ticket_predicates(self, filters: AnalyticsFilters) -> list[Any]:
         predicates: list[Any] = []
-        if filters.from_at:
-            predicates.append(Ticket.source_created_at >= _naive_utc(filters.from_at))
-        if filters.to_at:
-            predicates.append(Ticket.source_created_at <= _naive_utc(filters.to_at))
+        if filters.from_at is not None:
+            predicates.append(
+                Ticket.source_created_at >= _naive_utc(filters.from_at)
+            )
+        if filters.to_at is not None:
+            predicates.append(
+                Ticket.source_created_at <= _naive_utc(filters.to_at)
+            )
         if filters.customer_ids:
             predicates.append(Ticket.customer_id.in_(filters.customer_ids))
         if filters.requester_emails:
