@@ -47,6 +47,18 @@ content = indent_range(
 )
 PATH.write_text(content.rstrip() + "\n", encoding="utf-8")
 
+dto_path = Path("src/application/dtos/ticket_ingestion.py")
+dto_content = dto_path.read_text(encoding="utf-8")
+dto_content = dto_content.replace(
+    "from datetime import datetime\n",
+    "from datetime import datetime\nfrom enum import Enum\n",
+)
+dto_content = dto_content.replace(
+    "return str(value).upper() if value is not None else value",
+    "return value.value if isinstance(value, Enum) else (str(value).upper() if value is not None else value)",
+)
+dto_path.write_text(dto_content, encoding="utf-8")
+
 test_path = Path("tests/application/use_cases/test_ticket_ingestion_use_case.py")
 test_content = test_path.read_text(encoding="utf-8")
 test_content = test_content.replace(
