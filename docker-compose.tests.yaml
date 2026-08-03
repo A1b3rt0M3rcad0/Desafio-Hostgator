@@ -20,7 +20,7 @@ services:
   migrations_test:
     build:
       context: .
-      dockerfile: .Dockerfile.integration_tests
+      dockerfile: Dockerfile.integration_tests
     command: ["alembic", "upgrade", "head"]
     environment:
       MYSQL_URL_CONNECTION_MIGRATIONS: mysql+pymysql://root:test-only-password@db_test:3306/desafio_hostgator_test
@@ -31,7 +31,7 @@ services:
   integration_tests:
     build:
       context: .
-      dockerfile: .Dockerfile.integration_tests
+      dockerfile: Dockerfile.integration_tests
     user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
     environment:
       HOME: /tmp
@@ -50,7 +50,7 @@ services:
   unit_tests:
     build:
       context: .
-      dockerfile: .Dockerfile.unit_tests
+      dockerfile: Dockerfile.unit_tests
     user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
     environment:
       HOME: /tmp
