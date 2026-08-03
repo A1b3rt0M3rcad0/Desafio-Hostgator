@@ -21,7 +21,7 @@ services:
     build:
       context: .
       dockerfile: .Dockerfile.integration_tests
-    command: ["uv", "run", "--frozen", "alembic", "upgrade", "head"]
+    command: ["alembic", "upgrade", "head"]
     environment:
       MYSQL_URL_CONNECTION_MIGRATIONS: mysql+pymysql://root:test-only-password@db_test:3306/desafio_hostgator_test
     depends_on:
