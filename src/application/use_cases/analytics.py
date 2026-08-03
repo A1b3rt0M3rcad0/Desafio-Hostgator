@@ -48,6 +48,7 @@ _RESPONSE_BUCKETS = (
     ("over_4h", "Acima de 4 h"),
     ("unanswered", "Sem resposta válida"),
 )
+_CUSTOMER_METRICS_BATCH_SIZE = 100
 
 
 class AnalyticsCalculator:
@@ -609,15 +610,91 @@ class ListCustomerMetrics:
         self,
         input_dto: CustomerMetricsInput,
     ) -> CustomerMetricsPage:
-        result = await self._tickets.page_customer_analytics(input_dto)
+        if not self._has_metric_filters(input_dto):
+            result = await self._tickets.page_customer_analytics(input_dto)
+            return CustomerMetricsPage(
+                items=[
+                    AnalyticsCalculator.build_customer_item(item)
+                    for item in result.items
+                ],
+                page=result.page,
+                page_size=result.page_size,
+                total=result.total,
+                has_next=result.has_next,
+                has_previous=result.has_previous,
+            )
+
+        rows: list[CustomerAnalyticsRow] = []
+        repository_page = 1
+        while True:
+            repository_input = input_dto.model_copy(
+                update={
+                    "page": repository_page,
+                    "page_size": _CUSTOMER_METRICS_BATCH_SIZE,
+                }
+            )
+            result = await self._tickets.page_customer_analytics(repository_input)
+            rows.extend(result.items)
+            if not result.has_next:
+                break
+            repository_page += 1
+
+        filtered_items = [
+            item
+            for item in (
+                AnalyticsCalculator.build_customer_item(row) for row in rows
+            )
+            if self._matches_metric_filters(item, input_dto)
+        ]
+        offset = (input_dto.page - 1) * input_dto.page_size
+        page_items = filtered_items[offset : offset + input_dto.page_size]
+        total = len(filtered_items)
         return CustomerMetricsPage(
-            items=[
-                AnalyticsCalculator.build_customer_item(item)
-                for item in result.items
-            ],
-            page=result.page,
-            page_size=result.page_size,
-            total=result.total,
-            has_next=result.has_next,
-            has_previous=result.has_previous,
+            items=page_items,
+            page=input_dto.page,
+            page_size=input_dto.page_size,
+            total=total,
+            has_next=offset + len(page_items) < total,
+            has_previous=input_dto.page > 1,
         )
+
+    @staticmethod
+    def _has_metric_filters(input_dto: CustomerMetricsInput) -> bool:
+        return any(
+            value is not None
+            for value in (
+                input_dto.ticket_volume_min,
+                input_dto.ticket_volume_max,
+                input_dto.satisfaction_rate_min,
+                input_dto.satisfaction_rate_max,
+            )
+        )
+
+    @staticmethod
+    def _matches_metric_filters(
+        item: CustomerMetricsItem,
+        filters: CustomerMetricsInput,
+    ) -> bool:
+        if (
+            filters.ticket_volume_min is not None
+            and item.ticket_volume < filters.ticket_volume_min
+        ):
+            return False
+        if (
+            filters.ticket_volume_max is not None
+            and item.ticket_volume > filters.ticket_volume_max
+        ):
+            return False
+        if filters.satisfaction_rate_min is not None:
+            if (
+                item.satisfaction_rate is None
+                or item.satisfaction_rate < filters.satisfaction_rate_min
+            ):
+                return False
+        if filters.satisfaction_rate_max is not None:
+            if (
+                item.satisfaction_rate is None
+                or item.satisfaction_rate > filters.satisfaction_rate_max
+            ):
+                return False
+        return True
