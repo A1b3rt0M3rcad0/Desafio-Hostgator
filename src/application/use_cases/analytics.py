@@ -12,6 +12,7 @@ from src.application.dtos.analytics import (
     AverageFirstResponseMetric,
     AverageRecurrenceMetric,
     BasicDistributionPoint,
+    CustomerAnalyticsRow,
     CustomerBehaviorOutput,
     CustomerMetricsInput,
     CustomerMetricsItem,
@@ -55,13 +56,22 @@ class AnalyticsCalculator:
         return numerator / denominator if denominator else None
 
     @staticmethod
-    def change_percent(current: float | int | None, previous: float | int | None) -> float | None:
+    def change_percent(
+        current: float | int | None,
+        previous: float | int | None,
+    ) -> float | None:
         if current is None or previous in (None, 0):
             return None
-        return round(((float(current) - float(previous)) / abs(float(previous))) * 100, 2)
+        return round(
+            ((float(current) - float(previous)) / abs(float(previous))) * 100,
+            2,
+        )
 
     @staticmethod
-    def change_points(current: float | None, previous: float | None) -> float | None:
+    def change_points(
+        current: float | None,
+        previous: float | None,
+    ) -> float | None:
         if current is None or previous is None:
             return None
         return round((float(current) - float(previous)) * 100, 2)
@@ -72,7 +82,10 @@ class AnalyticsCalculator:
         current: DashboardPeriodSnapshot,
         previous: DashboardPeriodSnapshot | None,
     ) -> DashboardMetricsOutput:
-        current_resolution = cls.rate(current.resolved_tickets, current.total_tickets)
+        current_resolution = cls.rate(
+            current.resolved_tickets,
+            current.total_tickets,
+        )
         previous_resolution = (
             cls.rate(previous.resolved_tickets, previous.total_tickets)
             if previous
@@ -155,7 +168,10 @@ class AnalyticsCalculator:
         )
 
     @classmethod
-    def build_customer_item(cls, row: object) -> CustomerMetricsItem:
+    def build_customer_item(
+        cls,
+        row: CustomerAnalyticsRow,
+    ) -> CustomerMetricsItem:
         rated_total = row.good_ratings + row.bad_ratings
         return CustomerMetricsItem(
             customer_id=row.customer_id,
@@ -165,12 +181,20 @@ class AnalyticsCalculator:
             ticket_volume=row.ticket_volume,
             average_recurrence_seconds=row.average_recurrence_seconds,
             recurrence_sample_intervals=row.recurrence_sample_intervals,
-            resolution_rate=cls.rate(row.resolved_tickets, row.ticket_volume),
+            resolution_rate=cls.rate(
+                row.resolved_tickets,
+                row.ticket_volume,
+            ),
             resolved_tickets=row.resolved_tickets,
-            satisfaction_rate=cls.rate(row.good_ratings, rated_total),
+            satisfaction_rate=cls.rate(
+                row.good_ratings,
+                rated_total,
+            ),
             good_ratings=row.good_ratings,
             bad_ratings=row.bad_ratings,
-            average_first_response_seconds=row.average_first_response_seconds,
+            average_first_response_seconds=(
+                row.average_first_response_seconds
+            ),
             top_topics=row.top_topics,
         )
 
@@ -314,12 +338,15 @@ class GetDashboardOverview:
             else {}
         )
         response_counts = {
-            item.bucket: item.ticket_count for item in operational.response_buckets
+            item.bucket: item.ticket_count
+            for item in operational.response_buckets
         }
 
         status_distribution = []
         for item in current.status_counts:
-            previous_value = previous_statuses.get(item.label, 0) if previous else None
+            previous_value = (
+                previous_statuses.get(item.label, 0) if previous else None
+            )
             status_distribution.append(
                 DistributionPoint(
                     label=item.label,
@@ -335,7 +362,9 @@ class GetDashboardOverview:
         priority_breakdown = []
         for item in current.priority_aggregates:
             previous_value = (
-                previous_priorities.get(item.priority, 0) if previous else None
+                previous_priorities.get(item.priority, 0)
+                if previous
+                else None
             )
             priority_breakdown.append(
                 PriorityBreakdownPoint(
@@ -365,7 +394,9 @@ class GetDashboardOverview:
 
         topics = []
         for rank, item in enumerate(current.topic_aggregates, start=1):
-            previous_value = previous_topics.get(item.tag, 0) if previous else None
+            previous_value = (
+                previous_topics.get(item.tag, 0) if previous else None
+            )
             topics.append(
                 TopicBreakdownPoint(
                     tag=item.tag,
@@ -466,7 +497,9 @@ class GetDashboardOverview:
                 response.change_percent,
             ),
         ]
-        headline = " ".join(fragment for fragment in fragments if fragment)
+        headline = " ".join(
+            fragment for fragment in fragments if fragment
+        )
 
         alerts: list[tuple[float, str]] = []
         improvements: list[tuple[float, str]] = []
@@ -476,7 +509,8 @@ class GetDashboardOverview:
             target.append(
                 (
                     abs(points),
-                    f"Resolução {'subiu' if points > 0 else 'caiu'} {abs(points):.1f} p.p.",
+                    f"Resolução {'subiu' if points > 0 else 'caiu'} "
+                    f"{abs(points):.1f} p.p.",
                 )
             )
         if response.change_percent is not None:
@@ -495,19 +529,29 @@ class GetDashboardOverview:
             target.append(
                 (
                     abs(points),
-                    f"Satisfação {'subiu' if points > 0 else 'caiu'} {abs(points):.1f} p.p.",
+                    f"Satisfação {'subiu' if points > 0 else 'caiu'} "
+                    f"{abs(points):.1f} p.p.",
                 )
             )
 
         return DashboardSummaryOutput(
-            headline=headline or "O período não possui uma base anterior comparável.",
+            headline=(
+                headline
+                or "O período não possui uma base anterior comparável."
+            ),
             primary_alert=max(
                 alerts,
-                default=(0, "Nenhuma deterioração relevante foi detectada."),
+                default=(
+                    0,
+                    "Nenhuma deterioração relevante foi detectada.",
+                ),
             )[1],
             primary_improvement=max(
                 improvements,
-                default=(0, "Nenhuma melhora relevante foi detectada."),
+                default=(
+                    0,
+                    "Nenhuma melhora relevante foi detectada.",
+                ),
             )[1],
             top_driver=(
                 DashboardTopDriver(
@@ -522,7 +566,12 @@ class GetDashboardOverview:
         )
 
     @staticmethod
-    def _movement(label: str, change: float | None, *, neutral: bool = False) -> str:
+    def _movement(
+        label: str,
+        change: float | None,
+        *,
+        neutral: bool = False,
+    ) -> str:
         if change is None:
             return f"{label} não tem base anterior comparável."
         if abs(change) < 0.05:
@@ -537,7 +586,8 @@ class GetDashboardOverview:
             return f"{label} não tem base anterior comparável."
         if abs(change) < 0.05:
             return f"{label} permaneceu estável."
-        return f"{label} {'subiu' if change > 0 else 'caiu'} {abs(change):.1f} p.p."
+        direction = "subiu" if change > 0 else "caiu"
+        return f"{label} {direction} {abs(change):.1f} p.p."
 
     @staticmethod
     def _duration_movement(label: str, change: float | None) -> str:
@@ -555,7 +605,10 @@ class ListCustomerMetrics:
     def __init__(self, ticket_repository: TicketRepository) -> None:
         self._tickets = ticket_repository
 
-    async def execute(self, input_dto: CustomerMetricsInput) -> CustomerMetricsPage:
+    async def execute(
+        self,
+        input_dto: CustomerMetricsInput,
+    ) -> CustomerMetricsPage:
         result = await self._tickets.page_customer_analytics(input_dto)
         return CustomerMetricsPage(
             items=[
