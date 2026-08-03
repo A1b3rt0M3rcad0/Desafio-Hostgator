@@ -81,32 +81,31 @@ async def _run_ticket_filter_scenario() -> None:
             created_at=datetime(2026, 8, 2, 12, tzinfo=timezone.utc),
         ),
     ]
+    page = AsyncMock(
+        return_value=CursorPage[TicketEntity](
+            items=tickets,
+            next_cursor=None,
+            previous_cursor=None,
+            has_next=False,
+            has_previous=False,
+        )
+    )
     repository = cast(
         TicketRepository,
-        SimpleNamespace(
-            page=AsyncMock(
-                return_value=CursorPage[TicketEntity](
-                    items=tickets,
-                    next_cursor=None,
-                    previous_cursor=None,
-                    has_next=False,
-                    has_previous=False,
-                )
-            )
-        ),
+        SimpleNamespace(page=page),
     )
 
     output = await ListTickets(repository).execute(
         ListTicketsInput(
-            statuses=["SOLVED"],
-            priorities=["HIGH"],
+            statuses=[TicketStatus.SOLVED],
+            priorities=[TicketPriority.HIGH],
             from_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
             to_at=datetime(2026, 8, 2, 23, 59, 59, tzinfo=timezone.utc),
         )
     )
 
     assert [item.external_ticket_id for item in output.page.items] == [2]
-    repository.page.assert_awaited_once_with(None, 100)
+    page.assert_awaited_once_with(None, 100)
 
 
 def test_customer_metrics_filters_volume_and_satisfaction_before_pagination() -> None:
