@@ -18,9 +18,34 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest"]
+dev = [
+    "pyright",
+    "pytest",
+    "pytest-asyncio",
+    "pytest-cov",
+]
 
 [tool.pyright]
 pythonVersion = "3.14"
+pythonPlatform = "Linux"
 typeCheckingMode = "standard"
 include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]
+markers = [
+    "unit: isolated tests that do not require external services",
+    "integration: tests that require the disposable MySQL test database",
+]
+
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["src"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false

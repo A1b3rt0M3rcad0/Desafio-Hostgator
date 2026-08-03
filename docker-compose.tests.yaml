@@ -1,0 +1,61 @@
+name: desafio-hostgator-tests
+
+services:
+  db_test:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: test-only-password
+      MYSQL_DATABASE: desafio_hostgator_test
+    tmpfs:
+      - /var/lib/mysql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mysqladmin ping -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  migrations_test:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration_tests
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      MYSQL_URL_CONNECTION_MIGRATIONS: mysql+pymysql://root:test-only-password@db_test:3306/desafio_hostgator_test
+    depends_on:
+      db_test:
+        condition: service_healthy
+
+  integration_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration_tests
+    user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
+    environment:
+      HOME: /tmp
+      LOGNAME: testuser
+      USER: testuser
+      COVERAGE_FILE: /tmp/.coverage
+      MYSQL_URL_CONNECTION_TEST: mysql+aiomysql://root:test-only-password@db_test:3306/desafio_hostgator_test
+    volumes:
+      - ./reports:/reports
+    depends_on:
+      db_test:
+        condition: service_healthy
+      migrations_test:
+        condition: service_completed_successfully
+
+  unit_tests:
+    build:
+      context: .
+      dockerfile: Dockerfile.unit_tests
+    user: "${TEST_UID:-10001}:${TEST_GID:-10001}"
+    environment:
+      HOME: /tmp
+      LOGNAME: testuser
+      USER: testuser
+      COVERAGE_FILE: /tmp/.coverage
+    volumes:
+      - ./reports:/reports

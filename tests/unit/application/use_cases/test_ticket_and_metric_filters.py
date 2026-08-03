@@ -27,6 +27,7 @@ from src.domain.entities import TicketPriority, TicketStatus
 
 CUSTOMER_A = UUID("0198f17c-1a23-7000-8000-000000000001")
 TICKET_A = UUID("0198f17c-1a23-7000-8000-000000000101")
+pytestmark = pytest.mark.unit
 
 
 def test_list_tickets_delegates_filters_and_search_once() -> None:
@@ -56,8 +57,8 @@ async def _run_ticket_list_scenario() -> None:
     repository = cast(TicketRepository, SimpleNamespace(page_list=page_list))
     input_dto = ListTicketsInput(
         search="  falha   domínio  ",
-        statuses=["SOLVED"],
-        priorities=["HIGH"],
+        statuses=[TicketStatus.SOLVED],
+        priorities=[TicketPriority.HIGH],
         from_at=datetime(2026, 8, 2, tzinfo=timezone.utc),
         to_at=datetime(2026, 8, 2, 23, 59, 59, tzinfo=timezone.utc),
         page_size=25,

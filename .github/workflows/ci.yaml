@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck:
+    name: Type checking
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+          python-version: "3.14"
+          version: "0.11.33"
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --group dev
+
+      - name: Run Pyright
+        run: uv run --frozen pyright
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Build unit test image
+        run: docker build --file Dockerfile.unit_tests --tag desafio-hostgator-unit-tests .
+
+      - name: Run unit tests
+        run: |
+          mkdir -p reports
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --env HOME=/tmp \
+            --env COVERAGE_FILE=/tmp/.coverage \
+            --volume "$PWD/reports:/reports" \
+            desafio-hostgator-unit-tests
+
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: unit-test-reports
+          path: reports/*-unit.xml
+          if-no-files-found: warn
+          retention-days: 7
+
+  integration-tests:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Run integration tests with MySQL 8
+        run: |
+          mkdir -p reports
+          TEST_UID="$(id -u)" TEST_GID="$(id -g)" \
+            docker compose --file docker-compose.tests.yaml up \
+              --build \
+              --exit-code-from integration_tests \
+              integration_tests
+
+      - name: Show integration service logs on failure
+        if: failure()
+        run: |
+          docker compose --file docker-compose.tests.yaml logs \
+            --no-color \
+            db_test \
+            migrations_test \
+            integration_tests
+
+      - name: Clean test containers and database
+        if: always()
+        run: docker compose --file docker-compose.tests.yaml down --volumes --remove-orphans
+
+      - name: Upload integration test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-reports
+          path: reports/*-integration.xml
+          if-no-files-found: warn
+          retention-days: 7
