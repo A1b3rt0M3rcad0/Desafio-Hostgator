@@ -5,6 +5,7 @@ from uuid import UUID, uuid7
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     Enum as SQLAlchemyEnum,
     ForeignKey,
@@ -46,19 +47,30 @@ class BaseModel(Base):
     )
 
 
+class IngestionControl(Base):
+    __tablename__ = "ingestion_control"
+    __mapper_args__ = {"eager_defaults": True}
+
+    id: Mapped[int] = mapped_column(Integer(), primary_key=True, default=1)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, server_default="0"
+    )
+    cursor_position: Mapped[int] = mapped_column(
+        BigInteger(), nullable=False, default=0, server_default="0"
+    )
+    worker_state: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="DISABLED", server_default="DISABLED"
+    )
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+
 class User(BaseModel):
     __tablename__ = "users"
 
-    email: Mapped[str] = mapped_column(
-        String(255),
-        unique=True,
-        index=True,
-        nullable=False,
-    )
-    password_hash: Mapped[bytes] = mapped_column(
-        LargeBinary(255),
-        nullable=False,
-    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    password_hash: Mapped[bytes] = mapped_column(LargeBinary(255), nullable=False)
     auth_sessions: Mapped[list[AuthSession]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -81,19 +93,12 @@ class AuthSession(BaseModel):
         index=True,
         nullable=False,
     )
-    refresh_token_hash: Mapped[bytes] = mapped_column(
-        MySQLBinary(32),
-        nullable=False,
-    )
+    refresh_token_hash: Mapped[bytes] = mapped_column(MySQLBinary(32), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     last_used_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     compromised_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
-    rotation_counter: Mapped[int] = mapped_column(
-        Integer(),
-        nullable=False,
-        default=0,
-    )
+    rotation_counter: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
     user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ip_address: Mapped[str | None] = mapped_column(String(45), nullable=True)
     user: Mapped[User] = relationship(back_populates="auth_sessions", lazy="joined")
@@ -181,10 +186,7 @@ class SatisfactionRating(BaseModel):
     offered_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     rated_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     comment: Mapped[str] = mapped_column(String(1000), nullable=False, default="")
-    ticket: Mapped[Ticket] = relationship(
-        back_populates="satisfaction_rating",
-        lazy="joined",
-    )
+    ticket: Mapped[Ticket] = relationship(back_populates="satisfaction_rating", lazy="joined")
 
 
 class Tag(BaseModel):

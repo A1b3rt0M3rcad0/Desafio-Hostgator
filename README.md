@@ -1,46 +1,72 @@
 # Desafio HostGator
 
-Aplicação para persistência, processamento, visualização analítica e exportação de dados de atendimento.
+Aplicação web para gerenciar clientes, simular respostas de uma plataforma de HelpDesk, persistir as relações no MySQL e calcular métricas comportamentais de atendimento.
 
 ## Inicialização local
 
-Copie o arquivo de exemplo para `.env` e suba o stack:
-
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build -d
 ```
 
-Para iniciar em segundo plano e aguardar os healthchecks:
+No PowerShell:
 
-```bash
-docker compose up --build -d --wait --wait-timeout 120
+```powershell
+Copy-Item .env.example .env
+docker compose up --build -d
 ```
 
-Serviços locais padrão:
+Serviços locais:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:8000`
-- Documentação da API: `http://localhost:8000/docs`
+- Swagger: `http://localhost:8000/docs`
 - MySQL: `localhost:3306`
 
-A inicialização segue `db -> migrations -> api -> web`. O container web só inicia depois que a API estiver saudável.
-
-## Configuração de ambiente
-
-Somente `.env.example` é versionado. O `.env` é local, ignorado pelo Git e usado pelo Docker Compose para interpolar as configurações dos serviços.
-
-O navegador acessa a API pelo proxy do Nginx:
+A inicialização segue:
 
 ```text
-Navegador -> http://localhost:5173/api/* -> Nginx -> http://api:8000/*
+db
+  -> migrations
+  -> api + worker
+  -> web
 ```
 
-Ao alterar a URL pública da web, atualize `CORS_ALLOWED_ORIGINS` e `TRUSTED_ORIGINS`.
+Somente `migrations` é um serviço one-shot. O estado `Exited (0)` é esperado depois da conclusão das migrations.
+
+## Fonte simulada de tickets
+
+O projeto preserva o JSON como formato de integração com o HelpDesk, mas cada execução do worker representa uma nova consulta à origem simulada.
+
+```text
+worker
+  -> chama data/generate_tickets_mock.py
+  -> o gerador produz 30 registros
+  -> substitui data/tickets.json atomicamente
+  -> o worker lê os 30 registros do JSON
+  -> repositories persistem clientes, tickets e relações
+  -> aguarda o intervalo configurado
+  -> repete
+```
+
+O arquivo `data/tickets.json` contém apenas o snapshot da rodada atual e é ignorado pelo Git.
+
+O gerador possui uma base determinística de 500 clientes por padrão. Cada rodada seleciona 30 clientes dessa base e produz tickets com:
+
+- cliente e identificador externo;
+- assunto e descrição;
+- status e prioridade;
+- atendente;
+- primeira resposta;
+- tags;
+- satisfação;
+- datas da origem.
+
+A escrita utiliza um arquivo temporário e substituição atômica, evitando que o worker leia conteúdo incompleto.
 
 ## Arquitetura
 
-A aplicação preserva a separação:
+O fluxo HTTP mantém a arquitetura da aplicação:
 
 ```text
 Domain
@@ -53,9 +79,99 @@ Domain
   -> FastAPI routes
 ```
 
-Os repositórios CRUD permanecem independentes. Dashboard, métricas e exportações utilizam contratos de leitura próprios. Controllers não executam SQL e casos de uso não dependem de FastAPI ou SQLAlchemy.
+O worker é um processo de infraestrutura isolado:
 
-Não existe upload manual de JSON nem rota produtiva de ingestão. A futura simulação de API será tratada separadamente.
+```text
+worker container
+  -> gerador Python
+  -> snapshot JSON da rodada
+  -> engine SQLAlchemy própria e singleton por processo
+  -> Unit of Work por rodada
+  -> repositories concretos
+  -> MySQL
+```
+
+O worker não utiliza controllers, rotas HTTP, composers ou casos de uso da API.
+
+## Ingestão automática
+
+Configuração padrão:
+
+```env
+WORKER_SOURCE_PATH=/data/tickets.json
+WORKER_BATCH_SIZE=30
+WORKER_INTERVAL_SECONDS=30
+WORKER_CONTROL_POLL_SECONDS=2
+MOCK_CUSTOMER_COUNT=500
+MOCK_START_TICKET_ID=100001
+MOCK_YEAR=2026
+MOCK_SEED=hostgator-challenge-v4
+```
+
+Enquanto a ingestão estiver ligada, o worker:
+
+1. consulta o estado persistido da ingestão;
+2. chama o gerador para produzir exatamente 30 registros;
+3. sobrescreve `tickets.json` de forma atômica;
+4. lê e valida integralmente o JSON produzido;
+5. cria ou reutiliza os clientes pelo e-mail e pelo ID externo;
+6. cria ou atualiza tickets de forma idempotente;
+7. sincroniza tags e avaliações;
+8. atualiza o total gerado na mesma transação;
+9. aguarda 30 segundos e inicia outra rodada.
+
+A relação central é:
+
+```text
+Customer 1 -------- N Ticket
+Ticket   N -------- N Tag
+Ticket   1 -------- 0..1 SatisfactionRating
+```
+
+Os campos de atendente e primeira resposta ficam no próprio ticket.
+
+`ingestion_control.cursor_position` representa a quantidade total de registros gerados e persistidos. O próximo ID externo é calculado a partir desse valor. Se a transação falhar, o cursor não avança; na tentativa seguinte, o mesmo lote determinístico é produzido novamente.
+
+O JSON é sobrescrito mesmo que o banco mantenha todos os tickets anteriores. Assim, o arquivo representa somente o retorno atual da origem, enquanto o MySQL mantém o histórico acumulado.
+
+O dashboard expõe o controle:
+
+```text
+Ingestão automática [ligar/desligar]
+```
+
+Endpoints:
+
+```http
+GET   /ingestion/control
+PATCH /ingestion/control
+```
+
+## Gestão de clientes
+
+O backend e o frontend oferecem CRUD completo:
+
+```http
+POST   /customers
+GET    /customers
+GET    /customers/{customer_id}
+PATCH  /customers/{customer_id}
+DELETE /customers/{customer_id}
+```
+
+A ingestão também realiza upsert dos clientes presentes no retorno simulado do HelpDesk. O e-mail normalizado e o identificador externo protegem a identidade do cliente e permitem associar seus tickets.
+
+## Dados persistidos
+
+Tabelas principais:
+
+- `customers`;
+- `tickets`;
+- `tags`;
+- `ticket_tags`;
+- `satisfaction_ratings`;
+- `ingestion_control`;
+- `users` e `auth_sessions` para autenticação.
 
 ## Dashboard e métricas
 
@@ -66,33 +182,20 @@ GET /dashboard
 GET /metrics/customers
 ```
 
-Filtros compartilhados:
-
-- período;
-- clientes e e-mails;
-- status;
-- prioridades;
-- tags;
-- responsáveis;
-- satisfação;
-- existência de primeira resposta.
-
-Métricas:
+Indicadores:
 
 | Métrica | Definição |
 | --- | --- |
-| Volume de tickets | Quantidade de tickets dentro dos filtros. |
-| Frequência média | Média dos intervalos entre tickets consecutivos do mesmo cliente. |
+| Volume | Quantidade de tickets dentro dos filtros. |
+| Frequência média | Média dos intervalos entre tickets consecutivos do cliente. |
 | Assuntos principais | Tags com maior quantidade de tickets distintos. |
 | Taxa de resolução | Tickets `SOLVED` ou `CLOSED` divididos pelo total. |
-| Índice de satisfação | `GOOD / (GOOD + BAD)`. `OFFERED` e `UNOFFERED` não entram no denominador. |
-| Tempo médio até a primeira resposta | Média de `first_response_at - source_created_at` para respostas válidas. |
+| Satisfação | `GOOD / (GOOD + BAD)`. |
+| Primeira resposta | Média de `first_response_at - source_created_at`. |
 
-As faixas de tempo até a primeira resposta são indicadores operacionais e não representam conformidade de SLA.
+Filtros incluem período, cliente, status, prioridade, tags, atendente, satisfação e existência de primeira resposta.
 
-## Exportação de dados
-
-A exportação é estritamente de leitura. Nenhum endpoint de exportação cria, atualiza ou remove registros.
+## Exportações
 
 Endpoints:
 
@@ -108,72 +211,47 @@ Formatos suportados:
 - CSV;
 - XLSX.
 
-A exportação detalhada permite escolher campos e aplicar os mesmos filtros analíticos usados pelo dashboard. A pré-visualização é limitada, mas o arquivo final percorre todo o conjunto filtrado em lotes.
+## Autenticação
 
-A exportação de métricas reutiliza os mesmos cálculos do dashboard e oferece os escopos:
+O sistema utiliza:
 
-- visão geral;
-- por cliente.
-
-Os arquivos aplicam proteção contra formula injection. Campos compostos, como tags e satisfação, são serializados com segurança em CSV e XLSX.
+- access JWT curto em cookie `HttpOnly`;
+- refresh token opaco com rotação e hash HMAC-SHA256;
+- proteção CSRF para operações mutáveis;
+- validação de origem e cookies configuráveis.
 
 ## Frontend
 
 Telas implementadas:
 
 - login e registro;
-- páginas 401, 403, 404 e 500;
 - dashboard analítico;
-- tickets e clientes somente leitura;
+- tickets e detalhes;
+- CRUD completo de clientes;
 - métricas por cliente;
-- exportação de dados detalhados;
-- exportação de métricas.
+- exportação de dados e métricas;
+- páginas de erro.
 
-A tela `/exports` permite:
+Não existe upload manual de JSON pelo frontend. O snapshot é gerado e consumido pelo worker em cada rodada.
 
-- escolher CSV ou XLSX;
-- selecionar campos ou métricas;
-- selecionar o escopo das métricas;
-- filtrar por período, status, prioridade, tags, clientes, responsáveis, satisfação e primeira resposta;
-- pré-visualizar até 50 registros detalhados;
-- baixar o conjunto completo filtrado.
-
-Não existe rota `/imports`, botão de importação ou leitura de arquivos JSON no frontend.
-
-### Desenvolvimento sem Docker
-
-```bash
-cp .env.example .env
-cd web
-npm install
-npm run dev
-```
-
-## Testes
-
-```bash
-uv sync --dev
-PYTHONPATH=. uv run pytest -q
-cd web
-npm install
-npm run build
-```
-
-A pipeline `Analytics CI` executa:
-
-- compilação Python;
-- testes unitários;
-- cenários de integração com MySQL 8;
-- exportação detalhada com filtros;
-- métricas e comparação temporal;
-- writers CSV/XLSX;
-- build de produção do frontend.
-
-Os dados dos testes são inseridos por fixtures internas de teste, sem expor qualquer fluxo de ingestão na aplicação.
-
-## Estado e logs
+## Operação e diagnóstico
 
 ```bash
 docker compose ps -a
-docker compose logs web api migrations db
+docker compose logs migrations worker api web
+docker compose logs -f worker
 ```
+
+Primeira rodada esperada após ligar a ingestão:
+
+```text
+ticket_ingestion.completed cycle=1 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100031
+```
+
+Rodada seguinte:
+
+```text
+ticket_ingestion.completed cycle=2 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100061
+```
+
+Depois que os 500 clientes da base já tiverem aparecido, novas rodadas reutilizam esses clientes e continuam adicionando 30 tickets a cada intervalo.

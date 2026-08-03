@@ -3,6 +3,13 @@ from typing import Generic, TypeVar
 from uuid import UUID
 
 from src.application.dtos.cursor_page import CursorPage
+from src.application.dtos.ingestion_control import IngestionControlState
+from src.application.dtos.ticket_ingestion import (
+    CustomerSourceResult,
+    SatisfactionSourceRecord,
+    TicketSourceRecord,
+    TicketSourceResult,
+)
 from src.domain.entities import (
     AuthSessionEntity,
     CustomerEntity,
@@ -59,10 +66,19 @@ class AuthSessionRepository(ABC):
     async def revoke_all_by_user(self, user_id: UUID) -> int: ...
 
 
-class CustomerRepository(Repository[CustomerEntity]): ...
+class CustomerRepository(Repository[CustomerEntity]):
+    @abstractmethod
+    async def upsert_from_source(
+        self,
+        *,
+        external_requester_id: int,
+        requester_name: str,
+        requester_email: str,
+    ) -> CustomerSourceResult: ...
 
 
 class TicketRepository(Repository[TicketEntity]):
+    @abstractmethod
     async def page_by_tag_ids(
         self,
         tag_ids: list[UUID],
@@ -70,16 +86,61 @@ class TicketRepository(Repository[TicketEntity]):
         page_size: int = 20,
     ) -> CursorPage[TicketEntity]: ...
 
+    @abstractmethod
+    async def upsert_from_source(
+        self,
+        record: TicketSourceRecord,
+        *,
+        customer_id: UUID,
+    ) -> TicketSourceResult: ...
 
-class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]): ...
+    @abstractmethod
+    async def get_ingestion_control(
+        self,
+        *,
+        for_update: bool = False,
+    ) -> IngestionControlState: ...
+
+    @abstractmethod
+    async def set_ingestion_enabled(
+        self,
+        enabled: bool,
+    ) -> IngestionControlState: ...
+
+    @abstractmethod
+    async def complete_ingestion_cycle(self, *, next_cursor: int) -> None: ...
+
+    @abstractmethod
+    async def register_ingestion_error(self, message: str) -> None: ...
 
 
-class TagRepository(Repository[TagEntity]): ...
+class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):
+    @abstractmethod
+    async def synchronize_from_source(
+        self,
+        *,
+        ticket_id: UUID,
+        source: SatisfactionSourceRecord | None,
+    ) -> None: ...
+
+
+class TagRepository(Repository[TagEntity]):
+    @abstractmethod
+    async def resolve_by_names(self, names: list[str]) -> dict[str, TagEntity]: ...
 
 
 class TicketTagRepository(Repository[TicketTagEntity]):
+    @abstractmethod
     async def delete_by_ticket_and_tag(
         self,
         ticket_id: UUID,
         tag_id: UUID,
+    ) -> None: ...
+
+    @abstractmethod
+    async def replace_for_ticket(
+        self,
+        *,
+        ticket_id: UUID,
+        tag_ids: list[UUID],
     ) -> None: ...

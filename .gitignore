@@ -14,6 +14,10 @@ wheels/
 .env.local
 .env.*.local
 
+# Runtime snapshot overwritten by the worker every cycle
+data/tickets.json
+data/tickets.json.tmp
+
 # Frontend
 web/node_modules/
 web/dist/

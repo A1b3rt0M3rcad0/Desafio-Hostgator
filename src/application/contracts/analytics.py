@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
 from typing import Any
 
+from src.application.contracts.reports import ReportWriter, ReportWriterFactory
 from src.application.dtos.analytics import AnalyticsFilters, CustomerMetricsInput
-from src.domain.analytics import ReportFormat
 
 
 class AnalyticsQueryRepository(ABC):
@@ -24,16 +23,8 @@ class AnalyticsQueryRepository(ABC):
     ) -> dict[str, Any]: ...
 
 
-class ReportWriter(ABC):
-    @abstractmethod
-    def write(
-        self,
-        rows: Iterable[dict[str, Any]],
-        columns: list[str],
-        sheet_name: str,
-    ) -> bytes: ...
-
-
-class ReportWriterFactory(ABC):
-    @abstractmethod
-    def create(self, report_format: ReportFormat) -> ReportWriter: ...
+__all__ = [
+    "AnalyticsQueryRepository",
+    "ReportWriter",
+    "ReportWriterFactory",
+]
