@@ -173,8 +173,6 @@ Tabelas principais:
 - `ingestion_control`;
 - `users` e `auth_sessions` para autenticação.
 
-A antiga tabela de pendências de ingestão é removida pela migration `c3f5a7b9d210`.
-
 ## Dashboard e métricas
 
 Endpoints:
@@ -247,13 +245,13 @@ docker compose logs -f worker
 Primeira rodada esperada após ligar a ingestão:
 
 ```text
-ticket_ingestion.cycle.completed cycle=1 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100031
+ticket_ingestion.completed cycle=1 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100031
 ```
 
 Rodada seguinte:
 
 ```text
-ticket_ingestion.cycle.completed cycle=2 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100061
+ticket_ingestion.completed cycle=2 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100061
 ```
 
 Depois que os 500 clientes da base já tiverem aparecido, novas rodadas reutilizam esses clientes e continuam adicionando 30 tickets a cada intervalo.
