@@ -19,7 +19,7 @@ export function AppLayout({ pathname, children }) {
         <nav aria-label="Navegação principal">
           {navigation.map(([path, label]) => <Link key={path} to={path} className={pathname.startsWith(path) ? 'active' : ''}>{label}</Link>)}
         </nav>
-        <div className="sidebar-footer"><small>{user?.email || user?.id || 'Usuário autenticado'}</small><button type="button" onClick={logout}>Sair</button></div>
+        <div className="sidebar-footer"><small>{user?.email || 'Usuário autenticado'}</small><button type="button" onClick={logout}>Sair</button></div>
       </aside>
       <main className="main-content">{children}</main>
     </div>

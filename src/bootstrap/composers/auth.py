@@ -4,6 +4,7 @@ from src.application.use_cases.auth import (
     LogoutAuthSession,
     RefreshAuthSession,
 )
+from src.application.use_cases.get_user import GetUser
 from src.bootstrap.composers.database import DATABASE_ENGINE
 from src.bootstrap.security import (
     ACCESS_TOKEN_SERVICE,
@@ -105,5 +106,10 @@ def issue_csrf_token_controller() -> IssueCsrfTokenController:
     return IssueCsrfTokenController(_cookies())
 
 
-def current_user_controller() -> CurrentUserController:
-    return CurrentUserController()
+def current_user_composer() -> TransactionalHandler:
+    unit_of_work, users, _ = _repositories()
+    use_case = GetUser(users)
+    return TransactionalHandler(
+        unit_of_work,
+        CurrentUserController(use_case).handle,
+    )

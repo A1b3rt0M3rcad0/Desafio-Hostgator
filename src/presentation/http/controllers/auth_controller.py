@@ -1,9 +1,11 @@
+from src.application.contracts.use_cases import GetUser
 from src.application.dtos.auth import (
     AuthenticateUserInput,
     LogoutAllAuthSessionsInput,
     LogoutAuthSessionInput,
     RefreshAuthSessionInput,
 )
+from src.application.dtos.get_user import GetUserInput
 from src.application.use_cases.auth import (
     AuthenticateUser,
     LogoutAllAuthSessions,
@@ -222,14 +224,24 @@ class LogoutAllAuthSessionsController(Controller):
 
 
 class CurrentUserController(Controller):
+    def __init__(self, use_case: GetUser) -> None:
+        self._use_case = use_case
+
     async def handle(self, request: Request) -> Response:
         if request.user is None:
             return Response(status_code=401)
+
+        output = await self._use_case.execute(
+            GetUserInput(user_id=request.user.id),
+        )
+        if output.user is None:
+            return Response(status_code=401)
+
         return Response(
             status_code=200,
             headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
             body={
-                "id": request.user.id,
+                **output.user.model_dump(),
                 "session_id": request.user.session_id,
             },
         )
