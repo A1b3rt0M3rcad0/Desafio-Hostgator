@@ -76,6 +76,30 @@ class CustomerMetricsInput(AnalyticsFilters):
     page: int = Field(default=1, ge=1)
     page_size: int = Field(default=25, ge=1, le=100)
     top_topics_limit: int = Field(default=1, ge=1, le=10)
+    ticket_volume_min: int | None = Field(default=None, ge=0)
+    ticket_volume_max: int | None = Field(default=None, ge=0)
+    satisfaction_rate_min: float | None = Field(default=None, ge=0, le=1)
+    satisfaction_rate_max: float | None = Field(default=None, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_metric_ranges(self) -> "CustomerMetricsInput":
+        if (
+            self.ticket_volume_min is not None
+            and self.ticket_volume_max is not None
+            and self.ticket_volume_min > self.ticket_volume_max
+        ):
+            raise ValueError(
+                "ticket_volume_min must be less than or equal to ticket_volume_max"
+            )
+        if (
+            self.satisfaction_rate_min is not None
+            and self.satisfaction_rate_max is not None
+            and self.satisfaction_rate_min > self.satisfaction_rate_max
+        ):
+            raise ValueError(
+                "satisfaction_rate_min must be less than or equal to satisfaction_rate_max"
+            )
+        return self
 
 
 class StatusAggregate(BaseModel):
