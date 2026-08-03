@@ -18,5 +18,8 @@ class ResponseCookie(BaseModel):
 class Response(BaseModel):
     status_code: int
     body: Any = None
+    stream: Any = None
     headers: dict[str, Any] = Field(default_factory=dict)
     cookies: list[ResponseCookie] = Field(default_factory=list)
+
+    model_config = {"arbitrary_types_allowed": True}

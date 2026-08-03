@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from typing import Generic, TypeVar
 from uuid import UUID
 
@@ -174,6 +175,13 @@ class TicketRepository(Repository[TicketEntity]):
         limit: int,
         offset: int,
     ) -> list[ExportTicketRecord]: ...
+
+    @abstractmethod
+    def iterate_export_records(
+        self,
+        filters: AnalyticsFilters,
+        batch_size: int,
+    ) -> AsyncIterator[list[ExportTicketRecord]]: ...
 
 
 class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):

@@ -1,5 +1,5 @@
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from starlette.responses import Response as FastAPIResponse
 
 from src.presentation.http.schemas.response import Response
@@ -9,7 +9,14 @@ def adapt_response(response: Response) -> FastAPIResponse:
     headers = {key: str(value) for key, value in response.headers.items()}
 
     adapted: FastAPIResponse
-    if response.body is None:
+    if response.stream is not None:
+        adapted = StreamingResponse(
+            content=response.stream,
+            status_code=response.status_code,
+            headers=headers,
+            media_type=headers.get("Content-Type"),
+        )
+    elif response.body is None:
         adapted = FastAPIResponse(
             status_code=response.status_code,
             headers=headers,
