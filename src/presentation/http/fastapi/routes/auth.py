@@ -6,7 +6,7 @@ from starlette.responses import Response as FastAPIResponse
 
 from src.bootstrap.composers.auth import (
     authenticate_user_composer,
-    current_user_controller,
+    current_user_composer,
     issue_csrf_token_controller,
     logout_all_auth_sessions_composer,
     logout_auth_session_composer,
@@ -68,5 +68,5 @@ async def logout_all(request: FastAPIRequest) -> FastAPIResponse:
 
 @router.get("/me", dependencies=[Depends(require_authenticated_request)])
 async def me(request: FastAPIRequest) -> FastAPIResponse:
-    response = await current_user_controller().handle(adapt_request(request))
+    response = await current_user_composer()(adapt_request(request))
     return adapt_response(response)
