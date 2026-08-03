@@ -1,7 +1,7 @@
 """add monitored customers and optional HelpDesk binding
 
 Revision ID: d2f4a6b8c010
-Revises: 8c1f2a6d9b40
+Revises: 5d8e7a1c2b30
 Create Date: 2026-08-03 02:15:00
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d2f4a6b8c010"
-down_revision: Union[str, Sequence[str], None] = "8c1f2a6d9b40"
+down_revision: Union[str, Sequence[str], None] = "5d8e7a1c2b30"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
