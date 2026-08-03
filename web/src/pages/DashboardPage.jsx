@@ -13,6 +13,7 @@ import { formatDate, formatDuration, formatNumber, formatPercent, humanize } fro
 const STATUS_OPTIONS = ['NEW', 'OPEN', 'PENDING', 'HOLD', 'SOLVED', 'CLOSED'];
 const PRIORITY_OPTIONS = ['URGENT', 'HIGH', 'NORMAL', 'LOW'];
 const PERIODS = [
+  { value: 'today', label: 'Hoje' },
   { value: '7d', label: '7 dias', days: 7 },
   { value: '30d', label: '30 dias', days: 30 },
   { value: '90d', label: '90 dias', days: 90 },
@@ -55,10 +56,15 @@ function periodRange(period, anchor, customRange) {
       to_at: customRange.to_at ? new Date(customRange.to_at).toISOString() : undefined,
     };
   }
-  const config = PERIODS.find((item) => item.value === period) || PERIODS[1];
+
   const end = new Date(anchor);
   const start = new Date(end);
-  start.setDate(start.getDate() - config.days);
+  if (period === 'today') {
+    start.setHours(0, 0, 0, 0);
+  } else {
+    const config = PERIODS.find((item) => item.value === period) || PERIODS[2];
+    start.setDate(start.getDate() - config.days);
+  }
   return { from_at: start.toISOString(), to_at: end.toISOString() };
 }
 
@@ -133,19 +139,54 @@ function MetricCard({ label, value, detail, comparison, accent }) {
   );
 }
 
-function OperationalStory({ summary }) {
+function IngestionToggleButton() {
+  const [enabled, setEnabled] = useState(null);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    api.getIngestionControl()
+      .then((control) => {
+        if (active) setEnabled(Boolean(control.enabled));
+      })
+      .catch((requestError) => {
+        if (active) setError(requestError);
+      });
+    return () => { active = false; };
+  }, []);
+
+  async function toggle() {
+    if (enabled === null || updating) return;
+    setUpdating(true);
+    setError(null);
+    try {
+      const control = await api.updateIngestionControl(!enabled);
+      setEnabled(Boolean(control.enabled));
+    } catch (requestError) {
+      setError(requestError);
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  const label = error
+    ? 'Ingestão indisponível'
+    : enabled
+      ? 'Desativar ingestão'
+      : 'Ativar ingestão';
+
   return (
-    <section className="operational-story">
-      <div className="story-main">
-        <span className="analytics-kicker">Leitura do período</span>
-        <h2>{summary?.headline || 'Ainda não há dados suficientes para interpretar este escopo.'}</h2>
-      </div>
-      <div className="story-signals">
-        <div><span>Atenção</span><strong>{summary?.primary_alert || 'Sem alerta relevante'}</strong></div>
-        <div><span>Melhora</span><strong>{summary?.primary_improvement || 'Sem melhora comparável'}</strong></div>
-        <div><span>Principal assunto</span><strong>{summary?.top_driver?.label || 'Sem classificação'}</strong><small>{summary?.top_driver ? `${formatNumber(summary.top_driver.ticket_count)} tickets · ${formatPercent(summary.top_driver.share)}` : 'Nenhuma tag no escopo'}</small></div>
-      </div>
-    </section>
+    <button
+      type="button"
+      className="button button-secondary"
+      disabled={enabled === null || updating || Boolean(error)}
+      onClick={toggle}
+      aria-pressed={enabled === true}
+      title={error?.message || undefined}
+    >
+      {updating ? 'Atualizando…' : label}
+    </button>
   );
 }
 
@@ -222,6 +263,11 @@ export function DashboardPage() {
 
   function clearFilters() {
     setFilters({ statuses: [], priorities: [], tag_names: [], requester_emails: [], assignee_external_ids: [] });
+  }
+
+  function selectPeriod(value) {
+    setPeriod(value);
+    if (value !== 'custom') setAnchor(new Date());
   }
 
   if (resource.loading) return <Spinner label="Construindo visão analítica da operação" />;
@@ -331,6 +377,7 @@ export function DashboardPage() {
           <small>Dados atualizados em {formatDate(data.generated_at)} · Comparação com período anterior de mesma duração</small>
         </div>
         <div className="analytics-header-actions">
+          <IngestionToggleButton />
           <button type="button" className="button button-secondary" onClick={refresh}>↻ Atualizar</button>
           <button type="button" className="button button-primary" onClick={() => api.exportMetricsReport({ format: 'xlsx', scope: 'overall', metrics: [], filters: reportFilters })}>Exportar análise</button>
         </div>
@@ -338,7 +385,7 @@ export function DashboardPage() {
 
       <section className="analytics-toolbar">
         <div className="period-tabs" role="tablist" aria-label="Período de análise">
-          {PERIODS.map((item) => <button type="button" role="tab" aria-selected={period === item.value} className={period === item.value ? 'active' : ''} key={item.value} onClick={() => setPeriod(item.value)}>{item.label}</button>)}
+          {PERIODS.map((item) => <button type="button" role="tab" aria-selected={period === item.value} className={period === item.value ? 'active' : ''} key={item.value} onClick={() => selectPeriod(item.value)}>{item.label}</button>)}
         </div>
         <div className="analytics-filter-controls">
           <MultiSelect label="Status" values={filters.statuses} options={STATUS_OPTIONS.map((value) => ({ value, label: humanize(value) }))} onChange={(values) => updateFilter('statuses', values)} />
@@ -355,8 +402,6 @@ export function DashboardPage() {
         ) : null}
         <ActiveFilters filters={filters} assigneeLabels={assigneeLabels} onRemove={removeFilter} onClear={clearFilters} />
       </section>
-
-      <OperationalStory summary={data.summary} />
 
       <section className="analytics-metric-grid">{cards.map((card) => <MetricCard key={card.label} {...card} />)}</section>
 
