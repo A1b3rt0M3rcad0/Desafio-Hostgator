@@ -46,4 +46,15 @@ content = indent_range(
     None,
 )
 PATH.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+test_path = Path("tests/application/use_cases/test_ticket_ingestion_use_case.py")
+test_content = test_path.read_text(encoding="utf-8")
+test_content = test_content.replace(
+    "from src.domain.entities import CustomerEntity, TagEntity",
+    "from src.domain.entities import (\n    CustomerEntity,\n    TagEntity,\n    TicketPriority,\n    TicketStatus,\n)",
+)
+test_content = test_content.replace('status="open"', "status=TicketStatus.OPEN")
+test_content = test_content.replace('priority="high"', "priority=TicketPriority.HIGH")
+test_path.write_text(test_content, encoding="utf-8")
+
 Path(__file__).unlink()
