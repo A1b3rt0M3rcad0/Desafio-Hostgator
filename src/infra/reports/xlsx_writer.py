@@ -1,11 +1,20 @@
 from __future__ import annotations
 
+import asyncio
 import io
+import os
+import tempfile
 import zipfile
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
+from pathlib import Path
 from xml.sax.saxutils import escape
 
-from src.application.contracts.reports import ReportRow, ReportWriter
+from src.application.contracts.reports import (
+    ReportRow,
+    ReportRowBatches,
+    ReportWriter,
+    StreamingReportWriter,
+)
 from src.infra.reports.serialization import serialize_cell
 
 _CONTENT_TYPES = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -43,18 +52,60 @@ class XlsxReportWriter(ReportWriter):
             mode="w",
             compression=zipfile.ZIP_DEFLATED,
         ) as archive:
-            archive.writestr("[Content_Types].xml", _CONTENT_TYPES)
-            archive.writestr("_rels/.rels", _ROOT_RELATIONSHIPS)
-            archive.writestr("xl/workbook.xml", _workbook_xml(sheet_name))
-            archive.writestr(
-                "xl/_rels/workbook.xml.rels",
-                _WORKBOOK_RELATIONSHIPS,
-            )
+            _write_static_parts(archive, sheet_name)
             archive.writestr(
                 "xl/worksheets/sheet1.xml",
                 _worksheet_xml(rows, columns),
             )
         return output.getvalue()
+
+
+class XlsxStreamingReportWriter(StreamingReportWriter):
+    async def write(
+        self,
+        row_batches: ReportRowBatches,
+        columns: list[str],
+        sheet_name: str,
+    ) -> AsyncIterator[bytes]:
+        if not columns:
+            raise ValueError("XLSX report requires at least one column")
+
+        descriptor, raw_path = tempfile.mkstemp(prefix="hostgator-report-", suffix=".xlsx")
+        os.close(descriptor)
+        path = Path(raw_path)
+        try:
+            with zipfile.ZipFile(
+                path,
+                mode="w",
+                compression=zipfile.ZIP_DEFLATED,
+            ) as archive:
+                _write_static_parts(archive, sheet_name)
+                with archive.open("xl/worksheets/sheet1.xml", mode="w") as worksheet:
+                    worksheet.write(_worksheet_opening().encode("utf-8"))
+                    worksheet.write(_row_xml(1, {column: column for column in columns}, columns).encode("utf-8"))
+                    row_number = 2
+                    async for rows in row_batches:
+                        for row in rows:
+                            worksheet.write(
+                                _row_xml(row_number, row, columns).encode("utf-8")
+                            )
+                            row_number += 1
+                    worksheet.write(_worksheet_closing(columns).encode("utf-8"))
+        except BaseException:
+            path.unlink(missing_ok=True)
+            raise
+
+        return _stream_temporary_file(path)
+
+
+def _write_static_parts(archive: zipfile.ZipFile, sheet_name: str) -> None:
+    archive.writestr("[Content_Types].xml", _CONTENT_TYPES)
+    archive.writestr("_rels/.rels", _ROOT_RELATIONSHIPS)
+    archive.writestr("xl/workbook.xml", _workbook_xml(sheet_name))
+    archive.writestr(
+        "xl/_rels/workbook.xml.rels",
+        _WORKBOOK_RELATIONSHIPS,
+    )
 
 
 def _workbook_xml(sheet_name: str) -> str:
@@ -72,6 +123,19 @@ def _workbook_xml(sheet_name: str) -> str:
     )
 
 
+def _worksheet_opening() -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        '<sheetData>'
+    )
+
+
+def _worksheet_closing(columns: list[str]) -> str:
+    last_column = _column_name(len(columns))
+    return f'</sheetData><autoFilter ref="A1:{last_column}1"/></worksheet>'
+
+
 def _worksheet_xml(
     rows: Iterable[ReportRow],
     columns: list[str],
@@ -82,14 +146,7 @@ def _worksheet_xml(
         _row_xml(row_number, row, columns)
         for row_number, row in enumerate(rows, start=2)
     )
-    last_column = _column_name(len(columns))
-    return (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f'<sheetData>{"".join(xml_rows)}</sheetData>'
-        f'<autoFilter ref="A1:{last_column}1"/>'
-        '</worksheet>'
-    )
+    return f'{_worksheet_opening()}{"".join(xml_rows)}{_worksheet_closing(columns)}'
 
 
 def _row_xml(
@@ -122,3 +179,18 @@ def _column_name(index: int) -> str:
         index, remainder = divmod(index - 1, 26)
         name = chr(65 + remainder) + name
     return name
+
+
+async def _stream_temporary_file(
+    path: Path,
+    chunk_size: int = 64 * 1024,
+) -> AsyncIterator[bytes]:
+    try:
+        with path.open("rb") as source:
+            while True:
+                chunk = await asyncio.to_thread(source.read, chunk_size)
+                if not chunk:
+                    return
+                yield chunk
+    finally:
+        await asyncio.to_thread(path.unlink, True)

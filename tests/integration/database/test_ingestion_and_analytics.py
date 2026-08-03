@@ -213,6 +213,13 @@ async def test_ingestion_is_idempotent_and_analytics_execute_on_mysql(
         customer_metrics = await tickets.page_customer_analytics(
             CustomerMetricsInput(page=1, page_size=25, top_topics_limit=2)
         )
+        export_batches = [
+            batch
+            async for batch in tickets.iterate_export_records(
+                AnalyticsFilters(),
+                batch_size=2,
+            )
+        ]
 
         assert period.total_tickets == 3
         assert period.resolved_tickets == 2
@@ -241,6 +248,13 @@ async def test_ingestion_is_idempotent_and_analytics_execute_on_mysql(
         assert customer_metrics.items[0].average_recurrence_seconds == pytest.approx(
             7200
         )
+
+        assert [
+            [item.ticket_id for item in batch]
+            for batch in export_batches
+        ] == [[1001, 1002], [1003]]
+        assert export_batches[0][0].tags == ["dns"]
+        assert export_batches[0][1].tags == ["dns", "ssl"]
 
     async with integration_engine.connect() as connection:
         assert (

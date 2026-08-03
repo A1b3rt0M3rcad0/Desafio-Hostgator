@@ -5,6 +5,7 @@ from urllib.parse import quote
 from src.application.dtos.exports import (
     DataExportInput,
     DataExportPreviewInput,
+    ExportedFile,
     MetricsExportInput,
 )
 from src.application.use_cases.exports import (
@@ -43,21 +44,26 @@ class ExportDataController(Controller):
         self._use_case = use_case
 
     async def handle(self, request: Request) -> Response:
-        output = await self._use_case.execute(DataExportInput(**(request.body or {})))
-        return self._download_response(output.filename, output.media_type, output.content)
+        output = await self._use_case.execute(
+            DataExportInput(**(request.body or {}))
+        )
+        return self._download_response(output)
 
     @staticmethod
-    def _download_response(filename: str, media_type: str, content: bytes) -> Response:
-        encoded = quote(filename)
+    def _download_response(output: ExportedFile) -> Response:
+        encoded = quote(output.filename)
+        headers = {
+            "Content-Type": output.media_type,
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded}",
+            "Cache-Control": "no-store",
+        }
+        if output.content is not None:
+            headers["Content-Length"] = str(len(output.content))
         return Response(
             status_code=200,
-            body=content,
-            headers={
-                "Content-Type": media_type,
-                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded}",
-                "Content-Length": str(len(content)),
-                "Cache-Control": "no-store",
-            },
+            body=output.content,
+            stream=output.stream,
+            headers=headers,
         )
 
 
@@ -66,9 +72,7 @@ class ExportMetricsController(Controller):
         self._use_case = use_case
 
     async def handle(self, request: Request) -> Response:
-        output = await self._use_case.execute(MetricsExportInput(**(request.body or {})))
-        return ExportDataController._download_response(
-            output.filename,
-            output.media_type,
-            output.content,
+        output = await self._use_case.execute(
+            MetricsExportInput(**(request.body or {}))
         )
+        return ExportDataController._download_response(output)

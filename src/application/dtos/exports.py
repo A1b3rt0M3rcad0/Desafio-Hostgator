@@ -17,7 +17,9 @@ from src.domain.analytics import (
 
 class DataExportPreviewInput(BaseModel):
     filters: AnalyticsFilters = Field(default_factory=AnalyticsFilters)
-    fields: list[DataExportField] = Field(default_factory=lambda: list(DEFAULT_DATA_EXPORT_FIELDS))
+    fields: list[DataExportField] = Field(
+        default_factory=lambda: list(DEFAULT_DATA_EXPORT_FIELDS)
+    )
     limit: int = Field(default=50, ge=1, le=100)
 
     @field_validator("fields", mode="before")
@@ -33,7 +35,9 @@ class DataExportPreviewInput(BaseModel):
 class DataExportInput(BaseModel):
     format: ReportFormat
     filters: AnalyticsFilters = Field(default_factory=AnalyticsFilters)
-    fields: list[DataExportField] = Field(default_factory=lambda: list(DEFAULT_DATA_EXPORT_FIELDS))
+    fields: list[DataExportField] = Field(
+        default_factory=lambda: list(DEFAULT_DATA_EXPORT_FIELDS)
+    )
 
     @field_validator("fields", mode="before")
     @classmethod
@@ -65,7 +69,8 @@ class MetricsExportInput(BaseModel):
 class ExportedFile(BaseModel):
     filename: str
     media_type: str
-    content: bytes
+    content: bytes | None = None
+    stream: Any = None
 
     model_config = {"arbitrary_types_allowed": True}
 
