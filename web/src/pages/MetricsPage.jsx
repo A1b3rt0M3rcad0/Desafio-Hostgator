@@ -31,7 +31,10 @@ export function MetricsPage() {
     satisfaction_rate_max: filters.satisfactionMax === '' ? undefined : Number(filters.satisfactionMax) / 100,
   }), [filters, page]);
   const queryKey = JSON.stringify(query);
-  const resource = useResource(() => api.listCustomerMetrics(query), [queryKey]);
+  const resource = useResource(
+    (signal) => api.listCustomerMetrics(query, signal),
+    [queryKey],
+  );
 
   const updateFilter = (field, value) => {
     setFilterDraft((current) => ({ ...current, [field]: value }));
@@ -68,8 +71,8 @@ export function MetricsPage() {
     setPage(1);
   };
 
-  if (resource.loading) return <Spinner label="Calculando métricas por cliente" />;
-  if (resource.error) return <ErrorState error={resource.error} onRetry={resource.reload} />;
+  if (resource.loading && !resource.data) return <Spinner label="Calculando métricas por cliente" />;
+  if (resource.error && !resource.data) return <ErrorState error={resource.error} onRetry={resource.reload} />;
 
   const data = resource.data || { items: [], page: 1, total: 0, has_next: false, has_previous: false };
   return (
@@ -83,9 +86,11 @@ export function MetricsPage() {
         <div className="data-filter-actions"><button className="button button-secondary" type="button" onClick={clearFilters}>Limpar</button><button className="button button-primary" type="submit">Aplicar filtros</button></div>
         {filterError && <div className="form-error data-filter-error" role="alert">{filterError}</div>}
       </form>
+      {resource.error && <div className="form-error mutation-error" role="alert">{resource.error.message || 'Não foi possível atualizar as métricas.'}</div>}
       <section className="panel report-summary">
         <div><span>Clientes encontrados</span><strong>{formatNumber(data.total)}</strong></div>
         <div><span>Página atual</span><strong>{data.page}</strong></div>
+        {resource.loading && <div><span>Status</span><strong>Atualizando…</strong></div>}
       </section>
       <DataTable
         rowKey="customer_id"
@@ -103,9 +108,9 @@ export function MetricsPage() {
         ]}
       />
       <div className="pagination">
-        <button className="button button-secondary" type="button" disabled={!data.has_previous} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
+        <button className="button button-secondary" type="button" disabled={resource.loading || !data.has_previous} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
         <span>Página {data.page}</span>
-        <button className="button button-secondary" type="button" disabled={!data.has_next} onClick={() => setPage((current) => current + 1)}>Próxima</button>
+        <button className="button button-secondary" type="button" disabled={resource.loading || !data.has_next} onClick={() => setPage((current) => current + 1)}>Próxima</button>
       </div>
     </>
   );
