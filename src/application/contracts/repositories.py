@@ -15,6 +15,8 @@ from src.application.dtos.analytics import (
 )
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
+from src.application.dtos.list_customers import CustomerListItem, ListCustomersInput
+from src.application.dtos.list_tickets import ListTicketsInput, TicketListItem
 from src.application.dtos.ticket_ingestion import (
     CustomerSourceResult,
     SatisfactionSourceRecord,
@@ -79,6 +81,12 @@ class AuthSessionRepository(ABC):
 
 class CustomerRepository(Repository[CustomerEntity]):
     @abstractmethod
+    async def page_list(
+        self,
+        input_dto: ListCustomersInput,
+    ) -> CursorPage[CustomerListItem]: ...
+
+    @abstractmethod
     async def upsert_from_source(
         self,
         *,
@@ -92,6 +100,12 @@ class CustomerRepository(Repository[CustomerEntity]):
 
 
 class TicketRepository(Repository[TicketEntity]):
+    @abstractmethod
+    async def page_list(
+        self,
+        input_dto: ListTicketsInput,
+    ) -> CursorPage[TicketListItem]: ...
+
     @abstractmethod
     async def page_by_tag_ids(
         self,
