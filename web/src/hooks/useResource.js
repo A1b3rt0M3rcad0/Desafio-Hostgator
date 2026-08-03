@@ -11,7 +11,9 @@ export function useResource(loader, dependencies = []) {
       if (!signal?.aborted) setState({ data, loading: false, error: null });
       return data;
     } catch (error) {
-      if (!signal?.aborted) setState({ data: null, loading: false, error });
+      if (!signal?.aborted) {
+        setState((current) => ({ ...current, loading: false, error }));
+      }
       throw error;
     }
   }, [stableLoader]);

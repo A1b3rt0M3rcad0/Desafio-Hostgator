@@ -8,5 +8,5 @@ class ListTickets(ListTicketsContract):
         self._repository = repository
 
     async def execute(self, input_dto: ListTicketsInput) -> ListTicketsOutput:
-        page = await self._repository.page(input_dto.cursor, input_dto.page_size)
+        page = await self._repository.page_list(input_dto)
         return ListTicketsOutput(page=page)

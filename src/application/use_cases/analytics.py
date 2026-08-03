@@ -158,7 +158,9 @@ class AnalyticsCalculator:
                     0,
                 ),
                 previous_average_seconds=(
-                    previous.average_first_response_seconds if previous else None
+                    previous.average_first_response_seconds
+                    if previous
+                    else None
                 ),
                 change_percent=cls.change_percent(
                     current.average_first_response_seconds,
@@ -192,9 +194,7 @@ class AnalyticsCalculator:
             ),
             good_ratings=row.good_ratings,
             bad_ratings=row.bad_ratings,
-            average_first_response_seconds=(
-                row.average_first_response_seconds
-            ),
+            average_first_response_seconds=row.average_first_response_seconds,
             top_topics=row.top_topics,
         )
 
@@ -497,9 +497,7 @@ class GetDashboardOverview:
                 response.change_percent,
             ),
         ]
-        headline = " ".join(
-            fragment for fragment in fragments if fragment
-        )
+        headline = " ".join(fragment for fragment in fragments if fragment)
 
         alerts: list[tuple[float, str]] = []
         improvements: list[tuple[float, str]] = []

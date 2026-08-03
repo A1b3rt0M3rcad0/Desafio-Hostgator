@@ -8,5 +8,5 @@ class ListCustomers(ListCustomersContract):
         self._repository = repository
 
     async def execute(self, input_dto: ListCustomersInput) -> ListCustomersOutput:
-        page = await self._repository.page(input_dto.cursor, input_dto.page_size)
+        page = await self._repository.page_list(input_dto)
         return ListCustomersOutput(page=page)
