@@ -1,6 +1,6 @@
 # Desafio HostGator
 
-Aplicação web para gerenciar os clientes monitorados, cruzar seus e-mails com uma fonte JSON estática de HelpDesk, persistir tickets no MySQL e calcular métricas comportamentais de atendimento.
+Aplicação web para gerenciar clientes monitorados, cruzar seus e-mails com uma fonte JSON estática de HelpDesk, persistir tickets no MySQL e calcular métricas comportamentais de atendimento.
 
 ## Inicialização local
 
@@ -43,15 +43,16 @@ O fluxo é:
 ```text
 worker
   -> carrega e valida o JSON uma vez
-  -> seleciona um lote pelo cursor persistido
+  -> consulta o cursor persistido
+  -> seleciona o próximo lote em memória
   -> abre uma Unit of Work curta
   -> chama IngestTicketBatch
   -> o caso de uso cruza somente e-mails de clientes monitorados
   -> repositories consultam e persistem clientes, tickets, tags e avaliações em lote
-  -> o cursor percorre circularmente a fonte estática
+  -> atualiza o cursor na mesma transação
 ```
 
-O percurso circular permite que um cliente cadastrado depois da primeira leitura seja reconhecido em uma rodada posterior, sem criar clientes automaticamente a partir da fonte.
+O cursor percorre circularmente a fonte estática. Isso permite que um cliente cadastrado depois da primeira leitura seja reconhecido em uma rodada posterior, sem criar clientes automaticamente a partir do JSON.
 
 Clientes disponíveis no arquivo de demonstração:
 
@@ -61,9 +62,9 @@ Clientes disponíveis no arquivo de demonstração:
 
 O ID externo é opcional no cadastro. Quando ausente, a primeira correspondência válida por e-mail vincula o `requester_id` da fonte ao cliente.
 
+O gerador `data/generate_tickets_mock.py` permanece disponível apenas como utilitário de desenvolvimento para substituir manualmente o arquivo estático quando necessário. Ele não é chamado pelo worker.
+
 ## Arquitetura
-
-
 
 O fluxo HTTP mantém a arquitetura da aplicação:
 
@@ -78,19 +79,19 @@ Domain
   -> FastAPI routes
 ```
 
-O worker é um processo de infraestrutura isolado:
+A ingestão utiliza a mesma separação de responsabilidades:
 
 ```text
 worker container
-  -> gerador Python
-  -> snapshot JSON da rodada
-  -> engine SQLAlchemy própria e singleton por processo
-  -> Unit of Work por rodada
-  -> repositories concretos
+  -> leitura e seleção técnica da fonte JSON
+  -> Bootstrap composer
+  -> IngestTicketBatch
+  -> repository contracts
+  -> repositories SQLAlchemy
   -> MySQL
 ```
 
-O worker não utiliza controllers, rotas HTTP, composers ou casos de uso da API.
+O worker é responsável somente por configuração, temporização, leitura da fonte, sinais de encerramento, abertura da Unit of Work e acionamento do caso de uso. Regras de cruzamento, identidade, idempotência, classificação e avanço do cursor pertencem ao `IngestTicketBatch`.
 
 ## Ingestão automática
 
@@ -103,18 +104,19 @@ WORKER_INTERVAL_SECONDS=30
 WORKER_CONTROL_POLL_SECONDS=2
 ```
 
-Enquanto a ingestão estiver ligada, o worker:
+Enquanto a ingestão estiver ligada:
 
-1. consulta o estado persistido da ingestão;
-2. chama o gerador para produzir exatamente 30 registros;
-3. sobrescreve `tickets.json` de forma atômica;
-4. lê e valida integralmente o JSON produzido;
-5. busca em lote somente os clientes monitorados pelos e-mails do lote;
+1. o worker consulta o estado e o cursor persistidos;
+2. seleciona o próximo lote do JSON já validado;
+3. abre uma Unit of Work curta;
+4. o `IngestTicketBatch` bloqueia e valida o cursor;
+5. busca em lote somente os clientes monitorados pelos e-mails recebidos;
 6. ignora solicitantes não cadastrados e conflitos de identidade;
-7. cria ou atualiza tickets de forma idempotente e em lote;
-8. sincroniza tags e avaliações em lote;
-9. atualiza o cursor na mesma transação;
-10. aguarda 30 segundos e inicia outra rodada.
+7. busca os tickets existentes por IDs externos em uma consulta;
+8. classifica tickets novos, atualizados e inalterados em memória;
+9. persiste tickets, tags, relações e avaliações em lote;
+10. atualiza o cursor na mesma transação;
+11. aguarda o intervalo configurado e inicia outra rodada.
 
 A relação central é:
 
@@ -126,9 +128,7 @@ Ticket   1 -------- 0..1 SatisfactionRating
 
 Os campos de atendente e primeira resposta ficam no próprio ticket.
 
-`ingestion_control.cursor_position` representa a quantidade total de registros gerados e persistidos. O próximo ID externo é calculado a partir desse valor. Se a transação falhar, o cursor não avança; na tentativa seguinte, o mesmo lote determinístico é produzido novamente.
-
-O JSON é sobrescrito mesmo que o banco mantenha todos os tickets anteriores. Assim, o arquivo representa somente o retorno atual da origem, enquanto o MySQL mantém o histórico acumulado.
+`ingestion_control.cursor_position` representa a posição da próxima leitura dentro da fonte estática. Se a transação falhar, o cursor não avança e o mesmo lote será tentado novamente.
 
 O dashboard expõe o controle:
 
@@ -155,7 +155,14 @@ PATCH  /customers/{customer_id}
 DELETE /customers/{customer_id}
 ```
 
-A ingestão nunca cria clientes a partir do JSON. O CRUD define a base monitorada; o e-mail normalizado realiza o cruzamento. A exclusão desativa o monitoramento e preserva o histórico de tickets.
+O CRUD define a base monitorada. A ingestão nunca cria clientes a partir do JSON.
+
+- O e-mail normalizado é a chave de cruzamento com a fonte.
+- O identificador externo é opcional e funciona como vínculo auxiliar.
+- A primeira correspondência pode preencher o identificador externo ausente.
+- Uma divergência posterior de identificador externo é tratada como conflito.
+- `DELETE` desativa o monitoramento e preserva o histórico de tickets.
+- Um novo cadastro do mesmo e-mail reativa o cliente existente.
 
 ## Dados persistidos
 
@@ -228,7 +235,7 @@ Telas implementadas:
 - exportação de dados e métricas;
 - páginas de erro.
 
-Não existe upload manual de JSON pelo frontend. O snapshot é gerado e consumido pelo worker em cada rodada.
+Não existe upload manual de JSON pelo frontend. A fonte é versionada e consumida pelo worker.
 
 ## Operação e diagnóstico
 
@@ -238,16 +245,10 @@ docker compose logs migrations worker api web
 docker compose logs -f worker
 ```
 
-Primeira rodada esperada após ligar a ingestão:
+Exemplo de log de uma rodada:
 
 ```text
-ticket_ingestion.completed cycle=1 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100031
+ticket_ingestion.completed received=9 matched_customers=1 ignored_unmonitored=6 identity_conflicts=0 created=3 updated=0 unchanged=0 next_cursor=0
 ```
 
-Rodada seguinte:
-
-```text
-ticket_ingestion.completed cycle=2 generated=30 customers_created=30 tickets_created=30 next_ticket_id=100061
-```
-
-Depois que os 500 clientes da base já tiverem aparecido, novas rodadas reutilizam esses clientes e continuam adicionando 30 tickets a cada intervalo.
+Para testar a ingestão, cadastre ao menos um dos e-mails disponíveis em `data/tickets.json`, ligue a ingestão no dashboard e acompanhe os logs do worker.
