@@ -45,7 +45,7 @@ jobs:
         uses: actions/checkout@v7
 
       - name: Build unit test image
-        run: docker build --file .Dockerfile.unit_tests --tag desafio-hostgator-unit-tests .
+        run: docker build --file Dockerfile.unit_tests --tag desafio-hostgator-unit-tests .
 
       - name: Run unit tests
         run: |
