@@ -359,7 +359,13 @@ export function DashboardPage() {
     },
   ];
 
-  const priorityData = (charts.priority_breakdown || []).map((item) => ({ ...item, label: humanize(item.priority) }));
+  const priorityRank = Object.fromEntries(PRIORITY_OPTIONS.map((priority, index) => [priority, index]));
+  const priorityData = (charts.priority_breakdown || [])
+    .map((item) => ({ ...item, label: humanize(item.priority) }))
+    .sort((left, right) => (
+      (priorityRank[String(left.priority || '').toUpperCase()] ?? PRIORITY_OPTIONS.length)
+      - (priorityRank[String(right.priority || '').toUpperCase()] ?? PRIORITY_OPTIONS.length)
+    ));
   const responseData = charts.first_response_distribution || [];
 
   function refresh() {
