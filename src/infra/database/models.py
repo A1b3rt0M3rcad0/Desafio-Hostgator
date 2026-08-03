@@ -107,9 +107,20 @@ class AuthSession(BaseModel):
 class Customer(BaseModel):
     __tablename__ = "customers"
 
-    external_requester_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False)
+    external_requester_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        unique=True,
+        nullable=True,
+    )
     requester_name: Mapped[str] = mapped_column(String(255), nullable=False)
     requester_email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    is_monitored: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+        server_default="1",
+        index=True,
+    )
     tickets: Mapped[list[Ticket]] = relationship(
         back_populates="customer",
         lazy="selectin",

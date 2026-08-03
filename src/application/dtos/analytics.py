@@ -149,7 +149,7 @@ class TopicCount(BaseModel):
 
 class CustomerAnalyticsRow(BaseModel):
     customer_id: UUID
-    external_requester_id: int
+    external_requester_id: int | None = None
     requester_name: str
     requester_email: str
     ticket_volume: int
@@ -201,7 +201,7 @@ class ExportTicketRecord(BaseModel):
     description: str
     status: str
     priority: str
-    requester_id: int
+    requester_id: int | None = None
     requester_name: str
     requester_email: str
     assignee_id: int | None = None
@@ -382,7 +382,7 @@ class DashboardOutput(BaseModel):
 
 class CustomerMetricsItem(BaseModel):
     customer_id: UUID
-    external_requester_id: int
+    external_requester_id: int | None = None
     requester_name: str
     requester_email: str
     ticket_volume: int

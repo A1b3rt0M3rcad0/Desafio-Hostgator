@@ -14,8 +14,7 @@ wheels/
 .env.local
 .env.*.local
 
-# Runtime snapshot overwritten by the worker every cycle
-data/tickets.json
+# Temporary source generation files
 data/tickets.json.tmp
 
 # Frontend

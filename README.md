@@ -1,6 +1,6 @@
 # Desafio HostGator
 
-Aplicação web para gerenciar clientes, simular respostas de uma plataforma de HelpDesk, persistir as relações no MySQL e calcular métricas comportamentais de atendimento.
+Aplicação web para gerenciar os clientes monitorados, cruzar seus e-mails com uma fonte JSON estática de HelpDesk, persistir tickets no MySQL e calcular métricas comportamentais de atendimento.
 
 ## Inicialização local
 
@@ -34,37 +34,36 @@ db
 
 Somente `migrations` é um serviço one-shot. O estado `Exited (0)` é esperado depois da conclusão das migrations.
 
-## Fonte simulada de tickets
+## Fonte estática de tickets
 
-O projeto preserva o JSON como formato de integração com o HelpDesk, mas cada execução do worker representa uma nova consulta à origem simulada.
+O worker consome `data/tickets.json`, versionado no repositório. O arquivo representa o retorno estático de uma plataforma de HelpDesk e não é regenerado durante a execução.
+
+O fluxo é:
 
 ```text
 worker
-  -> chama data/generate_tickets_mock.py
-  -> o gerador produz 30 registros
-  -> substitui data/tickets.json atomicamente
-  -> o worker lê os 30 registros do JSON
-  -> repositories persistem clientes, tickets e relações
-  -> aguarda o intervalo configurado
-  -> repete
+  -> carrega e valida o JSON uma vez
+  -> seleciona um lote pelo cursor persistido
+  -> abre uma Unit of Work curta
+  -> chama IngestTicketBatch
+  -> o caso de uso cruza somente e-mails de clientes monitorados
+  -> repositories consultam e persistem clientes, tickets, tags e avaliações em lote
+  -> o cursor percorre circularmente a fonte estática
 ```
 
-O arquivo `data/tickets.json` contém apenas o snapshot da rodada atual e é ignorado pelo Git.
+O percurso circular permite que um cliente cadastrado depois da primeira leitura seja reconhecido em uma rodada posterior, sem criar clientes automaticamente a partir da fonte.
 
-O gerador possui uma base determinística de 500 clientes por padrão. Cada rodada seleciona 30 clientes dessa base e produz tickets com:
+Clientes disponíveis no arquivo de demonstração:
 
-- cliente e identificador externo;
-- assunto e descrição;
-- status e prioridade;
-- atendente;
-- primeira resposta;
-- tags;
-- satisfação;
-- datas da origem.
+- `ana.fernandes@techcorp.com.br` (`requester_id` 44521)
+- `bruno.silva@lojaviva.com.br` (`requester_id` 44522)
+- `camila.rocha@nexustech.com.br` (`requester_id` 44523)
 
-A escrita utiliza um arquivo temporário e substituição atômica, evitando que o worker leia conteúdo incompleto.
+O ID externo é opcional no cadastro. Quando ausente, a primeira correspondência válida por e-mail vincula o `requester_id` da fonte ao cliente.
 
 ## Arquitetura
+
+
 
 O fluxo HTTP mantém a arquitetura da aplicação:
 
@@ -102,10 +101,6 @@ WORKER_SOURCE_PATH=/data/tickets.json
 WORKER_BATCH_SIZE=30
 WORKER_INTERVAL_SECONDS=30
 WORKER_CONTROL_POLL_SECONDS=2
-MOCK_CUSTOMER_COUNT=500
-MOCK_START_TICKET_ID=100001
-MOCK_YEAR=2026
-MOCK_SEED=hostgator-challenge-v4
 ```
 
 Enquanto a ingestão estiver ligada, o worker:
@@ -114,11 +109,12 @@ Enquanto a ingestão estiver ligada, o worker:
 2. chama o gerador para produzir exatamente 30 registros;
 3. sobrescreve `tickets.json` de forma atômica;
 4. lê e valida integralmente o JSON produzido;
-5. cria ou reutiliza os clientes pelo e-mail e pelo ID externo;
-6. cria ou atualiza tickets de forma idempotente;
-7. sincroniza tags e avaliações;
-8. atualiza o total gerado na mesma transação;
-9. aguarda 30 segundos e inicia outra rodada.
+5. busca em lote somente os clientes monitorados pelos e-mails do lote;
+6. ignora solicitantes não cadastrados e conflitos de identidade;
+7. cria ou atualiza tickets de forma idempotente e em lote;
+8. sincroniza tags e avaliações em lote;
+9. atualiza o cursor na mesma transação;
+10. aguarda 30 segundos e inicia outra rodada.
 
 A relação central é:
 
@@ -159,7 +155,7 @@ PATCH  /customers/{customer_id}
 DELETE /customers/{customer_id}
 ```
 
-A ingestão também realiza upsert dos clientes presentes no retorno simulado do HelpDesk. O e-mail normalizado e o identificador externo protegem a identidade do cliente e permitem associar seus tickets.
+A ingestão nunca cria clientes a partir do JSON. O CRUD define a base monitorada; o e-mail normalizado realiza o cruzamento. A exclusão desativa o monitoramento e preserva o histórico de tickets.
 
 ## Dados persistidos
 

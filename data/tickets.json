@@ -1,0 +1,229 @@
+[
+  {
+    "ticket_id": 200001,
+    "subject": "Sistema de login indisponível",
+    "description": "O portal retorna erro 500 durante a autenticação.",
+    "status": "open",
+    "priority": "high",
+    "requester_id": 44521,
+    "requester_name": "Ana Beatriz Fernandes",
+    "requester_email": "ana.fernandes@techcorp.com.br",
+    "assignee_id": 9101,
+    "assignee_name": "Patrícia Gomes (Suporte N1)",
+    "created_at": "2026-05-02T10:05:00Z",
+    "updated_at": "2026-05-02T10:25:00Z",
+    "first_response_at": "2026-05-02T10:12:00Z",
+    "tags": [
+      "login",
+      "portal",
+      "erro-500"
+    ],
+    "satisfaction_rating": {
+      "score": "unoffered",
+      "comment": ""
+    }
+  },
+  {
+    "ticket_id": 200002,
+    "subject": "Erro ao redefinir senha",
+    "description": "O link de redefinição expira antes do uso.",
+    "status": "closed",
+    "priority": "normal",
+    "requester_id": 44521,
+    "requester_name": "Ana Beatriz Fernandes",
+    "requester_email": "ana.fernandes@techcorp.com.br",
+    "assignee_id": 9101,
+    "assignee_name": "Patrícia Gomes (Suporte N1)",
+    "created_at": "2026-06-15T08:40:00Z",
+    "updated_at": "2026-06-15T12:10:00Z",
+    "first_response_at": "2026-06-15T08:52:00Z",
+    "tags": [
+      "login",
+      "senha",
+      "token-expirado"
+    ],
+    "satisfaction_rating": {
+      "score": "good",
+      "offered_at": "2026-06-15T12:12:00Z",
+      "rated_at": "2026-06-15T12:40:00Z",
+      "comment": "Problema resolvido."
+    }
+  },
+  {
+    "ticket_id": 200003,
+    "subject": "Certificado SSL pendente",
+    "description": "O certificado permanece aguardando validação do domínio.",
+    "status": "hold",
+    "priority": "high",
+    "requester_id": 44521,
+    "requester_name": "Ana Beatriz Fernandes",
+    "requester_email": "ana.fernandes@techcorp.com.br",
+    "assignee_id": 9108,
+    "assignee_name": "Camila Rocha (Segurança e SSL)",
+    "created_at": "2026-07-10T15:10:00Z",
+    "updated_at": "2026-07-11T10:40:00Z",
+    "first_response_at": "2026-07-10T15:28:00Z",
+    "tags": [
+      "ssl",
+      "dominio",
+      "validacao"
+    ],
+    "satisfaction_rating": {
+      "score": "unoffered",
+      "comment": ""
+    }
+  },
+  {
+    "ticket_id": 200004,
+    "subject": "Site apresentando erro 503",
+    "description": "O site fica indisponível em horários de pico.",
+    "status": "solved",
+    "priority": "urgent",
+    "requester_id": 44522,
+    "requester_name": "Bruno Silva",
+    "requester_email": "bruno.silva@lojaviva.com.br",
+    "assignee_id": 9110,
+    "assignee_name": "André Lima (Servidores e Performance)",
+    "created_at": "2026-04-03T11:00:00Z",
+    "updated_at": "2026-04-03T14:20:00Z",
+    "first_response_at": "2026-04-03T11:08:00Z",
+    "tags": [
+      "erro-503",
+      "performance",
+      "hospedagem"
+    ],
+    "satisfaction_rating": {
+      "score": "good",
+      "offered_at": "2026-04-03T14:22:00Z",
+      "rated_at": "2026-04-03T15:00:00Z",
+      "comment": "Atendimento rápido."
+    }
+  },
+  {
+    "ticket_id": 200005,
+    "subject": "Cobrança duplicada",
+    "description": "Foram cobradas duas renovações para o mesmo período.",
+    "status": "pending",
+    "priority": "high",
+    "requester_id": 44522,
+    "requester_name": "Bruno Silva",
+    "requester_email": "bruno.silva@lojaviva.com.br",
+    "assignee_id": 9106,
+    "assignee_name": "Juliana Martins (Financeiro)",
+    "created_at": "2026-06-20T09:30:00Z",
+    "updated_at": "2026-06-20T11:00:00Z",
+    "first_response_at": "2026-06-20T09:45:00Z",
+    "tags": [
+      "cobranca",
+      "duplicidade",
+      "renovacao"
+    ],
+    "satisfaction_rating": {
+      "score": "offered",
+      "offered_at": "2026-06-20T11:02:00Z",
+      "comment": ""
+    }
+  },
+  {
+    "ticket_id": 200006,
+    "subject": "Falha de autenticação SMTP",
+    "description": "O cliente de e-mail não autentica no servidor de saída.",
+    "status": "closed",
+    "priority": "normal",
+    "requester_id": 44522,
+    "requester_name": "Bruno Silva",
+    "requester_email": "bruno.silva@lojaviva.com.br",
+    "assignee_id": 9104,
+    "assignee_name": "Lucas Mendes (E-mail)",
+    "created_at": "2026-07-02T13:00:00Z",
+    "updated_at": "2026-07-02T15:30:00Z",
+    "first_response_at": "2026-07-02T13:20:00Z",
+    "tags": [
+      "smtp",
+      "email",
+      "credenciais"
+    ],
+    "satisfaction_rating": {
+      "score": "bad",
+      "offered_at": "2026-07-02T15:32:00Z",
+      "rated_at": "2026-07-02T17:00:00Z",
+      "comment": "Demorou mais que o esperado."
+    }
+  },
+  {
+    "ticket_id": 200007,
+    "subject": "Propagação de DNS",
+    "description": "O domínio novo ainda não responde em todos os provedores.",
+    "status": "open",
+    "priority": "normal",
+    "requester_id": 44523,
+    "requester_name": "Camila Rocha",
+    "requester_email": "camila.rocha@nexustech.com.br",
+    "assignee_id": 9103,
+    "assignee_name": "Marina Alves (Domínios e DNS)",
+    "created_at": "2026-03-01T08:00:00Z",
+    "updated_at": "2026-03-01T08:50:00Z",
+    "first_response_at": "2026-03-01T08:10:00Z",
+    "tags": [
+      "dns",
+      "propagacao",
+      "dominio"
+    ],
+    "satisfaction_rating": {
+      "score": "unoffered",
+      "comment": ""
+    }
+  },
+  {
+    "ticket_id": 200008,
+    "subject": "Migração de site WordPress",
+    "description": "Solicitação de migração integral do site e banco de dados.",
+    "status": "solved",
+    "priority": "high",
+    "requester_id": 44523,
+    "requester_name": "Camila Rocha",
+    "requester_email": "camila.rocha@nexustech.com.br",
+    "assignee_id": 9109,
+    "assignee_name": "Diego Nunes (Migrações)",
+    "created_at": "2026-05-18T10:00:00Z",
+    "updated_at": "2026-05-19T16:00:00Z",
+    "first_response_at": "2026-05-18T10:30:00Z",
+    "tags": [
+      "migracao",
+      "wordpress",
+      "backup"
+    ],
+    "satisfaction_rating": {
+      "score": "good",
+      "offered_at": "2026-05-19T16:02:00Z",
+      "rated_at": "2026-05-19T18:00:00Z",
+      "comment": "Migração concluída."
+    }
+  },
+  {
+    "ticket_id": 200009,
+    "subject": "Uso elevado de CPU",
+    "description": "A aplicação apresenta consumo elevado de recursos.",
+    "status": "closed",
+    "priority": "urgent",
+    "requester_id": 44523,
+    "requester_name": "Camila Rocha",
+    "requester_email": "camila.rocha@nexustech.com.br",
+    "assignee_id": 9110,
+    "assignee_name": "André Lima (Servidores e Performance)",
+    "created_at": "2026-07-25T07:30:00Z",
+    "updated_at": "2026-07-25T12:00:00Z",
+    "first_response_at": "2026-07-25T07:38:00Z",
+    "tags": [
+      "cpu",
+      "memoria",
+      "performance"
+    ],
+    "satisfaction_rating": {
+      "score": "good",
+      "offered_at": "2026-07-25T12:02:00Z",
+      "rated_at": "2026-07-25T12:20:00Z",
+      "comment": "Resolvido no mesmo dia."
+    }
+  }
+]

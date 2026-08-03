@@ -1,17 +1,13 @@
+
 from __future__ import annotations
 
 from datetime import datetime
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from src.domain.entities import (
-    CustomerEntity,
-    SatisfactionScore,
-    TicketEntity,
-    TicketPriority,
-    TicketStatus,
-)
+from src.domain.entities import SatisfactionScore, TicketPriority, TicketStatus
 
 
 class SatisfactionSourceRecord(BaseModel):
@@ -23,7 +19,12 @@ class SatisfactionSourceRecord(BaseModel):
     @field_validator("score", mode="before")
     @classmethod
     def normalize_score(cls, value: Any) -> Any:
-        return str(value).upper() if value is not None else value
+        return value.value if isinstance(value, Enum) else (str(value).upper() if value is not None else value)
+
+    @field_validator("comment", mode="before")
+    @classmethod
+    def normalize_comment(cls, value: Any) -> str:
+        return "" if value is None else str(value)
 
 
 class TicketSourceRecord(BaseModel):
@@ -46,12 +47,17 @@ class TicketSourceRecord(BaseModel):
     @field_validator("status", "priority", mode="before")
     @classmethod
     def normalize_enum(cls, value: Any) -> Any:
-        return str(value).upper() if value is not None else value
+        return value.value if isinstance(value, Enum) else (str(value).upper() if value is not None else value)
 
     @field_validator("requester_email")
     @classmethod
     def normalize_email(cls, value: str) -> str:
         return value.strip().lower()
+
+    @field_validator("requester_name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        return value.strip()
 
     @field_validator("tags")
     @classmethod
@@ -59,12 +65,18 @@ class TicketSourceRecord(BaseModel):
         return sorted({item.strip() for item in value if item and item.strip()})
 
 
-class CustomerSourceResult(BaseModel):
-    customer: CustomerEntity
-    created: bool = False
+class IngestTicketBatchInput(BaseModel):
+    expected_cursor: int = Field(ge=0)
+    source_total: int = Field(gt=0)
+    records: list[TicketSourceRecord]
 
 
-class TicketSourceResult(BaseModel):
-    ticket: TicketEntity
-    created: bool = False
-    unchanged: bool = False
+class IngestTicketBatchOutput(BaseModel):
+    received: int
+    matched_customers: int
+    ignored_unmonitored: int
+    identity_conflicts: int
+    tickets_created: int
+    tickets_updated: int
+    tickets_unchanged: int
+    next_cursor: int

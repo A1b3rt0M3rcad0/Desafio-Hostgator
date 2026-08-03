@@ -59,7 +59,7 @@ export function CustomersPage() {
   const openEdit = (customer) => {
     setEditing(customer);
     setForm({
-      external_requester_id: String(customer.external_requester_id),
+      external_requester_id: customer.external_requester_id ? String(customer.external_requester_id) : '',
       requester_name: customer.requester_name,
       requester_email: customer.requester_email,
     });
@@ -81,9 +81,10 @@ export function CustomersPage() {
   const submitCustomer = async (event) => {
     event.preventDefault();
     setMutationError(null);
-    const externalId = Number(form.external_requester_id);
-    if (!Number.isSafeInteger(externalId) || externalId <= 0) {
-      setMutationError(new Error('Informe um ID externo inteiro e positivo.'));
+    const externalIdText = form.external_requester_id.trim();
+    const externalId = externalIdText ? Number(externalIdText) : null;
+    if (externalId !== null && (!Number.isSafeInteger(externalId) || externalId <= 0)) {
+      setMutationError(new Error('O ID externo deve ser um inteiro positivo.'));
       return;
     }
     const payload = {
@@ -112,7 +113,7 @@ export function CustomersPage() {
   };
 
   const removeCustomer = async (customer) => {
-    const confirmed = window.confirm(`Excluir o cliente ${customer.requester_name}?`);
+    const confirmed = window.confirm(`Remover ${customer.requester_name} do monitoramento? O histórico será preservado.`);
     if (!confirmed) return;
     setMutationError(null);
     try {
@@ -130,7 +131,7 @@ export function CustomersPage() {
     <PageHeader
       eyebrow="Dados"
       title="Clientes"
-      description="Gerencie os clientes. A ingestão cria ou reutiliza registros pelo e-mail e pelo ID externo recebidos do HelpDesk."
+      description="Cadastre os clientes monitorados. A ingestão cruza exclusivamente o e-mail cadastrado com a fonte HelpDesk."
       action={<button className="button button-primary" type="button" onClick={openCreate}>Novo cliente</button>}
     />
 
@@ -139,7 +140,7 @@ export function CustomersPage() {
         <div><h2>{editing ? 'Editar cliente' : 'Cadastrar cliente'}</h2><p>{editing ? 'Atualize os dados usados no cruzamento.' : 'Inclua manualmente um cliente na base.'}</p></div>
       </div>
       <form className="customer-form" onSubmit={submitCustomer}>
-        <label><span>ID externo</span><input type="number" min="1" required value={form.external_requester_id} onChange={(event) => updateField('external_requester_id', event.target.value)} /></label>
+        <label><span>ID externo (opcional)</span><input type="number" min="1" value={form.external_requester_id} onChange={(event) => updateField('external_requester_id', event.target.value)} /></label>
         <label><span>Nome</span><input type="text" maxLength="255" required value={form.requester_name} onChange={(event) => updateField('requester_name', event.target.value)} /></label>
         <label><span>E-mail</span><input type="email" maxLength="255" required value={form.requester_email} onChange={(event) => updateField('requester_email', event.target.value)} /></label>
         {mutationError && <div className="form-error" role="alert">{mutationError.message || 'Não foi possível salvar o cliente.'}</div>}
@@ -154,11 +155,11 @@ export function CustomersPage() {
 
     <div className="toolbar"><SearchField value={search} onChange={setSearch} placeholder="Buscar nome ou e-mail" /></div>
     <DataTable rows={rows} emptyTitle="Nenhum cliente encontrado" columns={[
-      { key: 'external_requester_id', label: 'ID externo' },
+      { key: 'external_requester_id', label: 'ID externo', render: (row) => row.external_requester_id || '—' },
       { key: 'requester_name', label: 'Nome' },
       { key: 'requester_email', label: 'E-mail' },
       { key: 'created_at', label: 'Cadastrado em', render: (row) => formatDate(row.created_at) },
-      { key: 'actions', label: '', render: (row) => <div className="table-actions"><DetailLink to={`/customers/${row.id}`} /><button className="table-action" type="button" onClick={() => openEdit(row)}>Editar</button><button className="table-action table-action-danger" type="button" onClick={() => removeCustomer(row)}>Excluir</button></div> },
+      { key: 'actions', label: '', render: (row) => <div className="table-actions"><DetailLink to={`/customers/${row.id}`} /><button className="table-action" type="button" onClick={() => openEdit(row)}>Editar</button><button className="table-action table-action-danger" type="button" onClick={() => removeCustomer(row)}>Remover monitoramento</button></div> },
     ]} />
     <Pagination page={page.data} onPrevious={page.previous} onNext={page.next} />
   </>;

@@ -1,3 +1,4 @@
+
 from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 from uuid import UUID
@@ -15,12 +16,7 @@ from src.application.dtos.analytics import (
 )
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
-from src.application.dtos.ticket_ingestion import (
-    CustomerSourceResult,
-    SatisfactionSourceRecord,
-    TicketSourceRecord,
-    TicketSourceResult,
-)
+from src.application.dtos.ticket_ingestion import SatisfactionSourceRecord
 from src.domain.entities import (
     AuthSessionEntity,
     CustomerEntity,
@@ -79,13 +75,21 @@ class AuthSessionRepository(ABC):
 
 class CustomerRepository(Repository[CustomerEntity]):
     @abstractmethod
-    async def upsert_from_source(
+    async def get_by_email(
         self,
+        email: str,
         *,
-        external_requester_id: int,
-        requester_name: str,
-        requester_email: str,
-    ) -> CustomerSourceResult: ...
+        include_unmonitored: bool = False,
+    ) -> CustomerEntity | None: ...
+
+    @abstractmethod
+    async def find_monitored_by_emails(
+        self,
+        emails: set[str],
+    ) -> dict[str, CustomerEntity]: ...
+
+    @abstractmethod
+    async def update_many(self, customers: list[CustomerEntity]) -> None: ...
 
     @abstractmethod
     async def list_filter_options(self) -> list[CustomerFilterOption]: ...
@@ -101,12 +105,16 @@ class TicketRepository(Repository[TicketEntity]):
     ) -> CursorPage[TicketEntity]: ...
 
     @abstractmethod
-    async def upsert_from_source(
+    async def get_by_external_ids(
         self,
-        record: TicketSourceRecord,
-        *,
-        customer_id: UUID,
-    ) -> TicketSourceResult: ...
+        external_ticket_ids: set[int],
+    ) -> dict[int, TicketEntity]: ...
+
+    @abstractmethod
+    async def insert_many(self, tickets: list[TicketEntity]) -> None: ...
+
+    @abstractmethod
+    async def update_many(self, tickets: list[TicketEntity]) -> None: ...
 
     @abstractmethod
     async def get_ingestion_control(
@@ -171,6 +179,12 @@ class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):
         source: SatisfactionSourceRecord | None,
     ) -> None: ...
 
+    @abstractmethod
+    async def synchronize_many(
+        self,
+        ratings: dict[UUID, SatisfactionSourceRecord | None],
+    ) -> None: ...
+
 
 class TagRepository(Repository[TagEntity]):
     @abstractmethod
@@ -194,4 +208,10 @@ class TicketTagRepository(Repository[TicketTagEntity]):
         *,
         ticket_id: UUID,
         tag_ids: list[UUID],
+    ) -> None: ...
+
+    @abstractmethod
+    async def replace_many(
+        self,
+        tags_by_ticket: dict[UUID, list[UUID]],
     ) -> None: ...

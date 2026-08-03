@@ -55,9 +55,10 @@ class AuthSessionEntity(BaseEntity):
 
 
 class CustomerEntity(BaseEntity):
-    external_requester_id: int
+    external_requester_id: int | None = None
     requester_name: str
     requester_email: str
+    is_monitored: bool = True
 
 
 class TicketEntity(BaseEntity):
