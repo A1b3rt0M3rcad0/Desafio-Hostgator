@@ -2,6 +2,17 @@ from abc import ABC, abstractmethod
 from typing import Generic, TypeVar
 from uuid import UUID
 
+from src.application.dtos.analytics import (
+    AnalyticsFilters,
+    AssigneeFilterOption,
+    CustomerAnalyticsQueryPage,
+    CustomerFilterOption,
+    CustomerMetricsInput,
+    DashboardOperationalSnapshot,
+    DashboardPeriodSnapshot,
+    ExportTicketRecord,
+    TagFilterOption,
+)
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
 from src.application.dtos.ticket_ingestion import (
@@ -76,6 +87,9 @@ class CustomerRepository(Repository[CustomerEntity]):
         requester_email: str,
     ) -> CustomerSourceResult: ...
 
+    @abstractmethod
+    async def list_filter_options(self) -> list[CustomerFilterOption]: ...
+
 
 class TicketRepository(Repository[TicketEntity]):
     @abstractmethod
@@ -113,6 +127,40 @@ class TicketRepository(Repository[TicketEntity]):
     @abstractmethod
     async def register_ingestion_error(self, message: str) -> None: ...
 
+    @abstractmethod
+    async def get_dashboard_period_snapshot(
+        self,
+        filters: AnalyticsFilters,
+        top_topics_limit: int,
+    ) -> DashboardPeriodSnapshot: ...
+
+    @abstractmethod
+    async def get_dashboard_operational_snapshot(
+        self,
+        filters: AnalyticsFilters,
+        timeline_limit: int,
+    ) -> DashboardOperationalSnapshot: ...
+
+    @abstractmethod
+    async def page_customer_analytics(
+        self,
+        input_dto: CustomerMetricsInput,
+    ) -> CustomerAnalyticsQueryPage: ...
+
+    @abstractmethod
+    async def list_assignee_options(self) -> list[AssigneeFilterOption]: ...
+
+    @abstractmethod
+    async def count_export_rows(self, filters: AnalyticsFilters) -> int: ...
+
+    @abstractmethod
+    async def fetch_export_records(
+        self,
+        filters: AnalyticsFilters,
+        limit: int,
+        offset: int,
+    ) -> list[ExportTicketRecord]: ...
+
 
 class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):
     @abstractmethod
@@ -127,6 +175,9 @@ class SatisfactionRatingRepository(Repository[SatisfactionRatingEntity]):
 class TagRepository(Repository[TagEntity]):
     @abstractmethod
     async def resolve_by_names(self, names: list[str]) -> dict[str, TagEntity]: ...
+
+    @abstractmethod
+    async def list_filter_options(self) -> list[TagFilterOption]: ...
 
 
 class TicketTagRepository(Repository[TicketTagEntity]):

@@ -1,8 +1,14 @@
+from __future__ import annotations
+
 import base64
+from collections import defaultdict
 from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, cast, overload
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select, update
+from sqlalchemy import and_, case, delete, exists, func, literal_column, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.application.contracts.repositories import (
@@ -14,6 +20,26 @@ from src.application.contracts.repositories import (
     TicketTagRepository,
     UserRepository,
 )
+from src.application.dtos.analytics import (
+    AnalyticsFilters,
+    AssigneeFilterOption,
+    CustomerAnalyticsQueryPage,
+    CustomerAnalyticsRow,
+    CustomerFilterOption,
+    CustomerMetricsInput,
+    DashboardOperationalSnapshot,
+    DashboardPeriodSnapshot,
+    ExportTicketRecord,
+    PriorityAggregate,
+    ResponseBucketAggregate,
+    SatisfactionExportRecord,
+    StatusAggregate,
+    TagFilterOption,
+    TimelineAggregate,
+    TopCustomerAggregate,
+    TopicAggregate,
+    TopicCount,
+)
 from src.application.dtos.cursor_page import CursorPage
 from src.application.dtos.ingestion_control import IngestionControlState
 from src.application.dtos.ticket_ingestion import (
@@ -22,6 +48,7 @@ from src.application.dtos.ticket_ingestion import (
     TicketSourceRecord,
     TicketSourceResult,
 )
+from src.domain.analytics import RATED_SATISFACTION_SCORES, RESOLVED_STATUSES
 from src.domain.entities import (
     AuthSessionEntity,
     CustomerEntity,
@@ -44,12 +71,24 @@ from src.infra.database.models import (
 from src.infra.database.unit_of_work import UnitOfWork
 
 
+@overload
+def _naive_utc(value: datetime) -> datetime: ...
+
+
+@overload
+def _naive_utc(value: None) -> None: ...
+
+
 def _naive_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
         return value
     return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _enum_value(value: Any) -> str:
+    return str(value.value if isinstance(value, Enum) else value)
 
 
 class _SqlAlchemyRepository:
@@ -152,13 +191,16 @@ class SqlAlchemyAuthSessionRepository(_SqlAlchemyRepository, AuthSessionReposito
 
     async def revoke_all_by_user(self, user_id: UUID) -> int:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
-        result = await self._session.execute(
-            update(AuthSession)
-            .where(
-                AuthSession.user_id == user_id,
-                AuthSession.revoked_at.is_(None),
-            )
-            .values(revoked_at=now)
+        result = cast(
+            CursorResult[Any],
+            await self._session.execute(
+                update(AuthSession)
+                .where(
+                    AuthSession.user_id == user_id,
+                    AuthSession.revoked_at.is_(None),
+                )
+                .values(revoked_at=now)
+            ),
         )
         await self._session.flush()
         return result.rowcount or 0
@@ -289,6 +331,25 @@ class SqlAlchemyCustomerRepository(_SqlAlchemyRepository, CustomerRepository):
             customer=CustomerEntity.model_validate(customer),
             created=created,
         )
+
+    async def list_filter_options(self) -> list[CustomerFilterOption]:
+        rows = (
+            await self._session.execute(
+                select(
+                    Customer.id,
+                    Customer.requester_name,
+                    Customer.requester_email,
+                ).order_by(Customer.requester_name.asc(), Customer.requester_email.asc())
+            )
+        ).all()
+        return [
+            CustomerFilterOption(
+                id=customer_id,
+                requester_name=requester_name,
+                requester_email=requester_email,
+            )
+            for customer_id, requester_name, requester_email in rows
+        ]
 
 
 class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
@@ -461,6 +522,747 @@ class SqlAlchemyTicketRepository(_SqlAlchemyRepository, TicketRepository):
         control.last_heartbeat_at = self._now()
         control.last_error = message[:2000]
         await self._session.flush()
+
+    async def get_dashboard_period_snapshot(
+        self,
+        filters: AnalyticsFilters,
+        top_topics_limit: int,
+    ) -> DashboardPeriodSnapshot:
+        predicates = self._ticket_predicates(filters)
+        valid_response = and_(
+            Ticket.first_response_at.is_not(None),
+            Ticket.first_response_at >= Ticket.source_created_at,
+        )
+        valid_response_seconds = case(
+            (
+                valid_response,
+                self._seconds_between(
+                    Ticket.first_response_at,
+                    Ticket.source_created_at,
+                ),
+            ),
+            else_=None,
+        )
+        summary = (
+            await self._session.execute(
+                select(
+                    func.count(Ticket.id).label("total_tickets"),
+                    func.sum(
+                        case((Ticket.status.in_(RESOLVED_STATUSES), 1), else_=0)
+                    ).label("resolved_tickets"),
+                    func.avg(valid_response_seconds).label(
+                        "average_first_response_seconds"
+                    ),
+                    func.sum(case((valid_response, 1), else_=0)).label(
+                        "responded_tickets"
+                    ),
+                    func.sum(
+                        case((SatisfactionRating.score == "GOOD", 1), else_=0)
+                    ).label("good_ratings"),
+                    func.sum(
+                        case((SatisfactionRating.score == "BAD", 1), else_=0)
+                    ).label("bad_ratings"),
+                )
+                .select_from(Ticket)
+                .outerjoin(
+                    SatisfactionRating,
+                    SatisfactionRating.ticket_id == Ticket.id,
+                )
+                .where(*predicates)
+            )
+        ).mappings().one()
+
+        ordered_tickets = (
+            select(
+                Ticket.customer_id.label("customer_id"),
+                Ticket.source_created_at.label("current_at"),
+                func.lag(Ticket.source_created_at)
+                .over(
+                    partition_by=Ticket.customer_id,
+                    order_by=(Ticket.source_created_at, Ticket.id),
+                )
+                .label("previous_at"),
+            )
+            .where(*predicates)
+            .subquery()
+        )
+        recurrence = (
+            await self._session.execute(
+                select(
+                    func.avg(
+                        self._seconds_between(
+                            ordered_tickets.c.current_at,
+                            ordered_tickets.c.previous_at,
+                        )
+                    ).label("average_seconds"),
+                    func.count(ordered_tickets.c.previous_at).label(
+                        "sample_intervals"
+                    ),
+                    func.count(
+                        func.distinct(ordered_tickets.c.customer_id)
+                    ).label("customers"),
+                ).where(ordered_tickets.c.previous_at.is_not(None))
+            )
+        ).mappings().one()
+
+        status_rows = (
+            await self._session.execute(
+                select(
+                    Ticket.status.label("label"),
+                    func.count(Ticket.id).label("value"),
+                )
+                .where(*predicates)
+                .group_by(Ticket.status)
+                .order_by(func.count(Ticket.id).desc())
+            )
+        ).mappings().all()
+
+        priority_rows = (
+            await self._session.execute(
+                select(
+                    Ticket.priority.label("priority"),
+                    func.count(Ticket.id).label("ticket_count"),
+                    func.sum(
+                        case((Ticket.status.in_(RESOLVED_STATUSES), 1), else_=0)
+                    ).label("resolved_tickets"),
+                    func.avg(valid_response_seconds).label(
+                        "average_first_response_seconds"
+                    ),
+                )
+                .where(*predicates)
+                .group_by(Ticket.priority)
+                .order_by(func.count(Ticket.id).desc())
+            )
+        ).mappings().all()
+
+        topic_rows = (
+            await self._session.execute(
+                select(
+                    Tag.name.label("tag"),
+                    func.count(func.distinct(Ticket.id)).label("ticket_count"),
+                    func.sum(
+                        case((Ticket.status.in_(RESOLVED_STATUSES), 1), else_=0)
+                    ).label("resolved_tickets"),
+                    func.avg(valid_response_seconds).label(
+                        "average_first_response_seconds"
+                    ),
+                )
+                .select_from(Ticket)
+                .join(TicketTag, TicketTag.ticket_id == Ticket.id)
+                .join(Tag, Tag.id == TicketTag.tag_id)
+                .where(*predicates)
+                .group_by(Tag.id, Tag.name)
+                .order_by(
+                    func.count(func.distinct(Ticket.id)).desc(),
+                    Tag.name.asc(),
+                )
+                .limit(top_topics_limit)
+            )
+        ).mappings().all()
+
+        return DashboardPeriodSnapshot(
+            total_tickets=int(summary["total_tickets"] or 0),
+            resolved_tickets=int(summary["resolved_tickets"] or 0),
+            average_first_response_seconds=self._optional_float(
+                summary["average_first_response_seconds"]
+            ),
+            responded_tickets=int(summary["responded_tickets"] or 0),
+            good_ratings=int(summary["good_ratings"] or 0),
+            bad_ratings=int(summary["bad_ratings"] or 0),
+            average_recurrence_seconds=self._optional_float(
+                recurrence["average_seconds"]
+            ),
+            recurrence_sample_intervals=int(recurrence["sample_intervals"] or 0),
+            customers_with_recurrence=int(recurrence["customers"] or 0),
+            status_counts=[
+                StatusAggregate(
+                    label=_enum_value(row["label"]),
+                    value=int(row["value"] or 0),
+                )
+                for row in status_rows
+            ],
+            priority_aggregates=[
+                PriorityAggregate(
+                    priority=_enum_value(row["priority"]),
+                    ticket_count=int(row["ticket_count"] or 0),
+                    resolved_tickets=int(row["resolved_tickets"] or 0),
+                    average_first_response_seconds=self._optional_float(
+                        row["average_first_response_seconds"]
+                    ),
+                )
+                for row in priority_rows
+            ],
+            topic_aggregates=[
+                TopicAggregate(
+                    tag=row["tag"],
+                    ticket_count=int(row["ticket_count"] or 0),
+                    resolved_tickets=int(row["resolved_tickets"] or 0),
+                    average_first_response_seconds=self._optional_float(
+                        row["average_first_response_seconds"]
+                    ),
+                )
+                for row in topic_rows
+            ],
+        )
+
+    async def get_dashboard_operational_snapshot(
+        self,
+        filters: AnalyticsFilters,
+        timeline_limit: int,
+    ) -> DashboardOperationalSnapshot:
+        predicates = self._ticket_predicates(filters)
+        valid_response = and_(
+            Ticket.first_response_at.is_not(None),
+            Ticket.first_response_at >= Ticket.source_created_at,
+        )
+        valid_response_seconds = case(
+            (
+                valid_response,
+                self._seconds_between(
+                    Ticket.first_response_at,
+                    Ticket.source_created_at,
+                ),
+            ),
+            else_=None,
+        )
+
+        timeline_rows = list(
+            reversed(
+                (
+                    await self._session.execute(
+                        select(
+                            func.date(Ticket.source_created_at).label("date"),
+                            func.count(Ticket.id).label("opened"),
+                            func.sum(
+                                case(
+                                    (Ticket.status.in_(RESOLVED_STATUSES), 1),
+                                    else_=0,
+                                )
+                            ).label("resolved"),
+                            func.avg(valid_response_seconds).label(
+                                "average_first_response_seconds"
+                            ),
+                            func.sum(
+                                case(
+                                    (SatisfactionRating.score == "GOOD", 1),
+                                    else_=0,
+                                )
+                            ).label("good_ratings"),
+                            func.sum(
+                                case(
+                                    (SatisfactionRating.score == "BAD", 1),
+                                    else_=0,
+                                )
+                            ).label("bad_ratings"),
+                        )
+                        .select_from(Ticket)
+                        .outerjoin(
+                            SatisfactionRating,
+                            SatisfactionRating.ticket_id == Ticket.id,
+                        )
+                        .where(*predicates)
+                        .group_by(func.date(Ticket.source_created_at))
+                        .order_by(func.date(Ticket.source_created_at).desc())
+                        .limit(timeline_limit)
+                    )
+                ).mappings().all()
+            )
+        )
+
+        response_seconds = self._seconds_between(
+            Ticket.first_response_at,
+            Ticket.source_created_at,
+        )
+        response_bucket = case(
+            (
+                or_(
+                    Ticket.first_response_at.is_(None),
+                    Ticket.first_response_at < Ticket.source_created_at,
+                ),
+                "unanswered",
+            ),
+            (response_seconds <= 15 * 60, "up_to_15m"),
+            (response_seconds <= 30 * 60, "15_to_30m"),
+            (response_seconds <= 60 * 60, "30_to_60m"),
+            (response_seconds <= 4 * 60 * 60, "1_to_4h"),
+            else_="over_4h",
+        ).label("bucket")
+        response_rows = (
+            await self._session.execute(
+                select(response_bucket, func.count(Ticket.id).label("ticket_count"))
+                .where(*predicates)
+                .group_by(response_bucket)
+            )
+        ).mappings().all()
+
+        per_customer = (
+            select(
+                Ticket.customer_id.label("customer_id"),
+                func.count(Ticket.id).label("ticket_count"),
+            )
+            .where(*predicates)
+            .group_by(Ticket.customer_id)
+            .subquery()
+        )
+        behavior = (
+            await self._session.execute(
+                select(
+                    func.count(per_customer.c.customer_id).label("unique_customers"),
+                    func.sum(
+                        case((per_customer.c.ticket_count > 1, 1), else_=0)
+                    ).label("repeat_customers"),
+                    func.avg(per_customer.c.ticket_count).label(
+                        "average_tickets_per_customer"
+                    ),
+                )
+            )
+        ).mappings().one()
+
+        top_customer_rows = (
+            await self._session.execute(
+                select(
+                    Customer.id.label("customer_id"),
+                    Customer.requester_name,
+                    Customer.requester_email,
+                    func.count(Ticket.id).label("ticket_count"),
+                )
+                .select_from(Ticket)
+                .join(Customer, Customer.id == Ticket.customer_id)
+                .where(*predicates)
+                .group_by(
+                    Customer.id,
+                    Customer.requester_name,
+                    Customer.requester_email,
+                )
+                .order_by(func.count(Ticket.id).desc(), Customer.requester_name.asc())
+                .limit(5)
+            )
+        ).mappings().all()
+
+        return DashboardOperationalSnapshot(
+            timeline=[
+                TimelineAggregate(
+                    date=str(row["date"]),
+                    opened=int(row["opened"] or 0),
+                    resolved=int(row["resolved"] or 0),
+                    average_first_response_seconds=self._optional_float(
+                        row["average_first_response_seconds"]
+                    ),
+                    good_ratings=int(row["good_ratings"] or 0),
+                    bad_ratings=int(row["bad_ratings"] or 0),
+                )
+                for row in timeline_rows
+            ],
+            response_buckets=[
+                ResponseBucketAggregate(
+                    bucket=row["bucket"],
+                    ticket_count=int(row["ticket_count"] or 0),
+                )
+                for row in response_rows
+            ],
+            unique_customers=int(behavior["unique_customers"] or 0),
+            repeat_customers=int(behavior["repeat_customers"] or 0),
+            average_tickets_per_customer=self._optional_float(
+                behavior["average_tickets_per_customer"]
+            ),
+            top_customers=[
+                TopCustomerAggregate(
+                    customer_id=row["customer_id"],
+                    requester_name=row["requester_name"],
+                    requester_email=row["requester_email"],
+                    ticket_count=int(row["ticket_count"] or 0),
+                )
+                for row in top_customer_rows
+            ],
+        )
+
+    async def page_customer_analytics(
+        self,
+        input_dto: CustomerMetricsInput,
+    ) -> CustomerAnalyticsQueryPage:
+        predicates = self._ticket_predicates(input_dto)
+        customer_ids_subquery = (
+            select(Ticket.customer_id.label("customer_id"))
+            .where(*predicates)
+            .group_by(Ticket.customer_id)
+            .subquery()
+        )
+        total_customers = int(
+            (
+                await self._session.execute(
+                    select(func.count()).select_from(customer_ids_subquery)
+                )
+            ).scalar_one()
+            or 0
+        )
+        offset = (input_dto.page - 1) * input_dto.page_size
+        valid_response = and_(
+            Ticket.first_response_at.is_not(None),
+            Ticket.first_response_at >= Ticket.source_created_at,
+        )
+        base_rows = (
+            await self._session.execute(
+                select(
+                    Customer.id.label("customer_id"),
+                    Customer.external_requester_id,
+                    Customer.requester_name,
+                    Customer.requester_email,
+                    func.count(Ticket.id).label("ticket_volume"),
+                    func.sum(
+                        case((Ticket.status.in_(RESOLVED_STATUSES), 1), else_=0)
+                    ).label("resolved_tickets"),
+                    func.avg(
+                        case(
+                            (
+                                valid_response,
+                                self._seconds_between(
+                                    Ticket.first_response_at,
+                                    Ticket.source_created_at,
+                                ),
+                            ),
+                            else_=None,
+                        )
+                    ).label("average_first_response_seconds"),
+                )
+                .select_from(Ticket)
+                .join(Customer, Customer.id == Ticket.customer_id)
+                .where(*predicates)
+                .group_by(
+                    Customer.id,
+                    Customer.external_requester_id,
+                    Customer.requester_name,
+                    Customer.requester_email,
+                )
+                .order_by(func.count(Ticket.id).desc(), Customer.requester_name.asc())
+                .offset(offset)
+                .limit(input_dto.page_size)
+            )
+        ).mappings().all()
+        page_customer_ids = [row["customer_id"] for row in base_rows]
+        if not page_customer_ids:
+            return CustomerAnalyticsQueryPage(
+                items=[],
+                page=input_dto.page,
+                page_size=input_dto.page_size,
+                total=total_customers,
+                has_next=False,
+                has_previous=input_dto.page > 1,
+            )
+
+        satisfaction_rows = (
+            await self._session.execute(
+                select(
+                    Ticket.customer_id,
+                    func.sum(
+                        case((SatisfactionRating.score == "GOOD", 1), else_=0)
+                    ).label("good_ratings"),
+                    func.sum(
+                        case((SatisfactionRating.score == "BAD", 1), else_=0)
+                    ).label("bad_ratings"),
+                )
+                .select_from(Ticket)
+                .join(
+                    SatisfactionRating,
+                    SatisfactionRating.ticket_id == Ticket.id,
+                )
+                .where(
+                    *predicates,
+                    Ticket.customer_id.in_(page_customer_ids),
+                    SatisfactionRating.score.in_(RATED_SATISFACTION_SCORES),
+                )
+                .group_by(Ticket.customer_id)
+            )
+        ).mappings().all()
+        satisfaction_by_customer = {
+            row["customer_id"]: row for row in satisfaction_rows
+        }
+
+        ordered = (
+            select(
+                Ticket.customer_id.label("customer_id"),
+                Ticket.source_created_at.label("current_at"),
+                func.lag(Ticket.source_created_at)
+                .over(
+                    partition_by=Ticket.customer_id,
+                    order_by=(Ticket.source_created_at, Ticket.id),
+                )
+                .label("previous_at"),
+            )
+            .where(*predicates, Ticket.customer_id.in_(page_customer_ids))
+            .subquery()
+        )
+        recurrence_rows = (
+            await self._session.execute(
+                select(
+                    ordered.c.customer_id,
+                    func.avg(
+                        self._seconds_between(
+                            ordered.c.current_at,
+                            ordered.c.previous_at,
+                        )
+                    ).label("average_seconds"),
+                    func.count(ordered.c.previous_at).label("sample_intervals"),
+                )
+                .where(ordered.c.previous_at.is_not(None))
+                .group_by(ordered.c.customer_id)
+            )
+        ).mappings().all()
+        recurrence_by_customer = {row["customer_id"]: row for row in recurrence_rows}
+
+        topic_rows = (
+            await self._session.execute(
+                select(
+                    Ticket.customer_id,
+                    Tag.name.label("tag"),
+                    func.count(func.distinct(Ticket.id)).label("ticket_count"),
+                )
+                .select_from(Ticket)
+                .join(TicketTag, TicketTag.ticket_id == Ticket.id)
+                .join(Tag, Tag.id == TicketTag.tag_id)
+                .where(*predicates, Ticket.customer_id.in_(page_customer_ids))
+                .group_by(Ticket.customer_id, Tag.id, Tag.name)
+                .order_by(
+                    Ticket.customer_id.asc(),
+                    func.count(func.distinct(Ticket.id)).desc(),
+                    Tag.name.asc(),
+                )
+            )
+        ).mappings().all()
+        topics_by_customer: dict[UUID, list[TopicCount]] = defaultdict(list)
+        for row in topic_rows:
+            bucket = topics_by_customer[row["customer_id"]]
+            if len(bucket) < input_dto.top_topics_limit:
+                bucket.append(
+                    TopicCount(
+                        tag=row["tag"],
+                        ticket_count=int(row["ticket_count"] or 0),
+                    )
+                )
+
+        items: list[CustomerAnalyticsRow] = []
+        for row in base_rows:
+            customer_id = row["customer_id"]
+            satisfaction = satisfaction_by_customer.get(customer_id, {})
+            recurrence = recurrence_by_customer.get(customer_id, {})
+            items.append(
+                CustomerAnalyticsRow(
+                    customer_id=customer_id,
+                    external_requester_id=row["external_requester_id"],
+                    requester_name=row["requester_name"],
+                    requester_email=row["requester_email"],
+                    ticket_volume=int(row["ticket_volume"] or 0),
+                    resolved_tickets=int(row["resolved_tickets"] or 0),
+                    good_ratings=int(satisfaction.get("good_ratings") or 0),
+                    bad_ratings=int(satisfaction.get("bad_ratings") or 0),
+                    average_first_response_seconds=self._optional_float(
+                        row["average_first_response_seconds"]
+                    ),
+                    average_recurrence_seconds=self._optional_float(
+                        recurrence.get("average_seconds")
+                    ),
+                    recurrence_sample_intervals=int(
+                        recurrence.get("sample_intervals") or 0
+                    ),
+                    top_topics=topics_by_customer.get(customer_id, []),
+                )
+            )
+
+        return CustomerAnalyticsQueryPage(
+            items=items,
+            page=input_dto.page,
+            page_size=input_dto.page_size,
+            total=total_customers,
+            has_next=offset + len(items) < total_customers,
+            has_previous=input_dto.page > 1,
+        )
+
+    async def list_assignee_options(self) -> list[AssigneeFilterOption]:
+        rows = (
+            await self._session.execute(
+                select(Ticket.assignee_external_id, Ticket.assignee_name)
+                .where(Ticket.assignee_external_id.is_not(None))
+                .group_by(Ticket.assignee_external_id, Ticket.assignee_name)
+                .order_by(Ticket.assignee_name.asc())
+            )
+        ).all()
+        options: list[AssigneeFilterOption] = []
+        for external_id, name in rows:
+            if external_id is None:
+                continue
+            options.append(
+                AssigneeFilterOption(external_id=external_id, name=name)
+            )
+        return options
+
+    async def count_export_rows(self, filters: AnalyticsFilters) -> int:
+        return int(
+            (
+                await self._session.execute(
+                    select(func.count(Ticket.id)).where(
+                        *self._ticket_predicates(filters)
+                    )
+                )
+            ).scalar_one()
+            or 0
+        )
+
+    async def fetch_export_records(
+        self,
+        filters: AnalyticsFilters,
+        limit: int,
+        offset: int,
+    ) -> list[ExportTicketRecord]:
+        rows = (
+            await self._session.execute(
+                select(
+                    Ticket.id.label("internal_ticket_id"),
+                    Ticket.external_ticket_id,
+                    Ticket.subject,
+                    Ticket.description,
+                    Ticket.status,
+                    Ticket.priority,
+                    Ticket.assignee_external_id,
+                    Ticket.assignee_name,
+                    Ticket.source_created_at,
+                    Ticket.source_updated_at,
+                    Ticket.first_response_at,
+                    Customer.external_requester_id,
+                    Customer.requester_name,
+                    Customer.requester_email,
+                    SatisfactionRating.score.label("satisfaction_score"),
+                    SatisfactionRating.offered_at,
+                    SatisfactionRating.rated_at,
+                    SatisfactionRating.comment,
+                )
+                .select_from(Ticket)
+                .join(Customer, Customer.id == Ticket.customer_id)
+                .outerjoin(
+                    SatisfactionRating,
+                    SatisfactionRating.ticket_id == Ticket.id,
+                )
+                .where(*self._ticket_predicates(filters))
+                .order_by(Ticket.external_ticket_id.asc())
+                .offset(offset)
+                .limit(limit)
+            )
+        ).mappings().all()
+
+        ticket_ids = [row["internal_ticket_id"] for row in rows]
+        tags_by_ticket: dict[UUID, list[str]] = defaultdict(list)
+        if ticket_ids:
+            tag_rows = (
+                await self._session.execute(
+                    select(TicketTag.ticket_id, Tag.name)
+                    .join(Tag, Tag.id == TicketTag.tag_id)
+                    .where(TicketTag.ticket_id.in_(ticket_ids))
+                    .order_by(TicketTag.ticket_id.asc(), Tag.name.asc())
+                )
+            ).all()
+            for ticket_id, tag_name in tag_rows:
+                tags_by_ticket[ticket_id].append(tag_name)
+
+        records: list[ExportTicketRecord] = []
+        for row in rows:
+            rating = None
+            if row["satisfaction_score"] is not None:
+                rating = SatisfactionExportRecord(
+                    score=_enum_value(row["satisfaction_score"]),
+                    offered_at=row["offered_at"],
+                    rated_at=row["rated_at"],
+                    comment=row["comment"] or "",
+                )
+            records.append(
+                ExportTicketRecord(
+                    internal_ticket_id=row["internal_ticket_id"],
+                    ticket_id=row["external_ticket_id"],
+                    subject=row["subject"],
+                    description=row["description"],
+                    status=_enum_value(row["status"]),
+                    priority=_enum_value(row["priority"]),
+                    requester_id=row["external_requester_id"],
+                    requester_name=row["requester_name"],
+                    requester_email=row["requester_email"],
+                    assignee_id=row["assignee_external_id"],
+                    assignee_name=row["assignee_name"],
+                    created_at=row["source_created_at"],
+                    updated_at=row["source_updated_at"],
+                    first_response_at=row["first_response_at"],
+                    tags=tags_by_ticket.get(row["internal_ticket_id"], []),
+                    satisfaction_rating=rating,
+                )
+            )
+        return records
+
+    def _ticket_predicates(self, filters: AnalyticsFilters) -> list[Any]:
+        predicates: list[Any] = []
+        if filters.from_at is not None:
+            predicates.append(
+                Ticket.source_created_at >= _naive_utc(filters.from_at)
+            )
+        if filters.to_at is not None:
+            predicates.append(
+                Ticket.source_created_at <= _naive_utc(filters.to_at)
+            )
+        if filters.customer_ids:
+            predicates.append(Ticket.customer_id.in_(filters.customer_ids))
+        if filters.requester_emails:
+            predicates.append(
+                exists(
+                    select(literal_column("1"))
+                    .select_from(Customer)
+                    .where(
+                        Customer.id == Ticket.customer_id,
+                        func.lower(Customer.requester_email).in_(
+                            filters.requester_emails
+                        ),
+                    )
+                )
+            )
+        if filters.statuses:
+            predicates.append(Ticket.status.in_(filters.statuses))
+        if filters.priorities:
+            predicates.append(Ticket.priority.in_(filters.priorities))
+        if filters.assignee_external_ids:
+            predicates.append(
+                Ticket.assignee_external_id.in_(filters.assignee_external_ids)
+            )
+        if filters.tag_ids or filters.tag_names:
+            tag_query = (
+                select(literal_column("1"))
+                .select_from(TicketTag)
+                .join(Tag, Tag.id == TicketTag.tag_id)
+                .where(TicketTag.ticket_id == Ticket.id)
+            )
+            tag_conditions: list[Any] = []
+            if filters.tag_ids:
+                tag_conditions.append(Tag.id.in_(filters.tag_ids))
+            if filters.tag_names:
+                tag_conditions.append(Tag.name.in_(filters.tag_names))
+            predicates.append(exists(tag_query.where(*tag_conditions)))
+        if filters.satisfaction_scores:
+            predicates.append(
+                exists(
+                    select(literal_column("1"))
+                    .select_from(SatisfactionRating)
+                    .where(
+                        SatisfactionRating.ticket_id == Ticket.id,
+                        SatisfactionRating.score.in_(filters.satisfaction_scores),
+                    )
+                )
+            )
+        if filters.has_first_response is True:
+            predicates.append(Ticket.first_response_at.is_not(None))
+        elif filters.has_first_response is False:
+            predicates.append(Ticket.first_response_at.is_(None))
+        return predicates
+
+    @staticmethod
+    def _seconds_between(end_column: Any, start_column: Any) -> Any:
+        return func.unix_timestamp(end_column) - func.unix_timestamp(start_column)
+
+    @staticmethod
+    def _optional_float(value: Any) -> float | None:
+        return round(float(value), 2) if value is not None else None
 
     async def _get_ingestion_control_model(
         self,
@@ -665,6 +1467,14 @@ class SqlAlchemyTagRepository(_SqlAlchemyRepository, TagRepository):
             name: TagEntity.model_validate(tag)
             for name, tag in by_name.items()
         }
+
+    async def list_filter_options(self) -> list[TagFilterOption]:
+        rows = (
+            await self._session.execute(
+                select(Tag.id, Tag.name).order_by(Tag.name.asc())
+            )
+        ).all()
+        return [TagFilterOption(id=tag_id, name=name) for tag_id, name in rows]
 
 
 class SqlAlchemyTicketTagRepository(_SqlAlchemyRepository, TicketTagRepository):

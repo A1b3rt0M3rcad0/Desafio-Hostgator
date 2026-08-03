@@ -13,7 +13,7 @@ class GetDashboardOverviewController(Controller):
 
     async def handle(self, request: Request) -> Response:
         output = await self._use_case.execute(DashboardInput(**request.query))
-        return Response(status_code=200, body=output)
+        return Response(status_code=200, body=output.model_dump(mode="json"))
 
 
 class ListCustomerMetricsController(Controller):

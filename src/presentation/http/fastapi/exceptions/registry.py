@@ -1,8 +1,11 @@
+from typing import cast
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ExceptionHandler
 
 from src.presentation.http.fastapi.exceptions.handlers import (
     database_exception_handler,
@@ -17,25 +20,25 @@ from src.presentation.http.fastapi.exceptions.handlers import (
 def register_exception_handlers(application: FastAPI) -> None:
     application.add_exception_handler(
         StarletteHTTPException,
-        http_exception_handler,
+        cast(ExceptionHandler, http_exception_handler),
     )
     application.add_exception_handler(
         RequestValidationError,
-        request_validation_exception_handler,
+        cast(ExceptionHandler, request_validation_exception_handler),
     )
     application.add_exception_handler(
         ValidationError,
-        pydantic_validation_exception_handler,
+        cast(ExceptionHandler, pydantic_validation_exception_handler),
     )
     application.add_exception_handler(
         IntegrityError,
-        integrity_exception_handler,
+        cast(ExceptionHandler, integrity_exception_handler),
     )
     application.add_exception_handler(
         SQLAlchemyError,
-        database_exception_handler,
+        cast(ExceptionHandler, database_exception_handler),
     )
     application.add_exception_handler(
         Exception,
-        unexpected_exception_handler,
+        cast(ExceptionHandler, unexpected_exception_handler),
     )

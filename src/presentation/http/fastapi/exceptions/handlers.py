@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Mapping, Sequence
 from types import TracebackType
 from typing import Any
 
@@ -21,7 +22,9 @@ def _exception_info(
     return type(exception), exception, exception.__traceback__
 
 
-def _validation_details(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _validation_details(
+    errors: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
     return [
         {
             "field": ".".join(str(part) for part in error["loc"]),

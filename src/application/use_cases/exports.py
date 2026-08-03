@@ -3,9 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from src.application.contracts.analytics import AnalyticsQueryRepository, ReportWriterFactory
-from src.application.contracts.exports import DataExportRepository
-from src.application.dtos.analytics import CustomerMetricsInput
+from src.application.contracts.reports import ReportWriterFactory
+from src.application.contracts.repositories import (
+    CustomerRepository,
+    TagRepository,
+    TicketRepository,
+)
+from src.application.dtos.analytics import CustomerMetricsInput, ExportTicketRecord
 from src.application.dtos.exports import (
     DataExportInput,
     DataExportPreviewInput,
@@ -13,11 +17,13 @@ from src.application.dtos.exports import (
     ExportedFile,
     MetricsExportInput,
 )
+from src.application.use_cases.analytics import AnalyticsCalculator
 from src.domain.analytics import (
     DEFAULT_DATA_EXPORT_FIELDS,
     DEFAULT_METRICS,
     ESSENTIAL_DATA_EXPORT_FIELDS,
     SERVICE_DATA_EXPORT_FIELDS,
+    DataExportField,
     MetricCode,
     ReportFormat,
     ReportScope,
@@ -84,11 +90,20 @@ _FIELD_PRESETS = (
 
 
 class GetExportCatalog:
-    def __init__(self, repository: DataExportRepository) -> None:
-        self._repository = repository
+    def __init__(
+        self,
+        ticket_repository: TicketRepository,
+        customer_repository: CustomerRepository,
+        tag_repository: TagRepository,
+    ) -> None:
+        self._tickets = ticket_repository
+        self._customers = customer_repository
+        self._tags = tag_repository
 
     async def execute(self) -> dict[str, Any]:
-        filter_options = await self._repository.get_filter_options()
+        tags = await self._tags.list_filter_options()
+        customers = await self._customers.list_filter_options()
+        assignees = await self._tickets.list_assignee_options()
         return {
             "formats": [
                 {
@@ -139,22 +154,45 @@ class GetExportCatalog:
                 "scope": ReportScope.OVERALL.value,
                 "metrics": [metric.value for metric in DEFAULT_METRICS],
             },
-            "filter_options": filter_options,
+            "filter_options": {
+                "tags": [
+                    {"id": str(option.id), "name": option.name}
+                    for option in tags
+                ],
+                "customers": [
+                    {
+                        "id": str(option.id),
+                        "requester_name": option.requester_name,
+                        "requester_email": option.requester_email,
+                    }
+                    for option in customers
+                ],
+                "assignees": [
+                    {
+                        "external_id": option.external_id,
+                        "name": option.name or f"Responsável {option.external_id}",
+                    }
+                    for option in assignees
+                ],
+            },
         }
 
 
 class PreviewDataExport:
-    def __init__(self, repository: DataExportRepository) -> None:
-        self._repository = repository
+    def __init__(self, ticket_repository: TicketRepository) -> None:
+        self._tickets = ticket_repository
 
     async def execute(self, input_dto: DataExportPreviewInput) -> DataExportPreviewOutput:
-        total = await self._repository.count_rows(input_dto.filters)
-        rows = await self._repository.fetch_rows(
+        total = await self._tickets.count_export_rows(input_dto.filters)
+        records = await self._tickets.fetch_export_records(
             input_dto.filters,
-            input_dto.fields,
             input_dto.limit,
             0,
         )
+        rows = [
+            _serialize_export_record(record, input_dto.fields)
+            for record in records
+        ]
         return DataExportPreviewOutput(
             total_matching=total,
             preview_count=len(rows),
@@ -166,11 +204,11 @@ class PreviewDataExport:
 class ExportData:
     def __init__(
         self,
-        repository: DataExportRepository,
+        ticket_repository: TicketRepository,
         writer_factory: ReportWriterFactory,
         batch_size: int = 1000,
     ) -> None:
-        self._repository = repository
+        self._tickets = ticket_repository
         self._writer_factory = writer_factory
         self._batch_size = batch_size
 
@@ -178,16 +216,18 @@ class ExportData:
         rows: list[dict[str, Any]] = []
         offset = 0
         while True:
-            batch = await self._repository.fetch_rows(
+            records = await self._tickets.fetch_export_records(
                 input_dto.filters,
-                input_dto.fields,
                 self._batch_size,
                 offset,
             )
-            rows.extend(batch)
-            if len(batch) < self._batch_size:
+            rows.extend(
+                _serialize_export_record(record, input_dto.fields)
+                for record in records
+            )
+            if len(records) < self._batch_size:
                 break
-            offset += len(batch)
+            offset += len(records)
 
         columns = [field.value for field in input_dto.fields]
         writer = self._writer_factory.create(input_dto.format)
@@ -203,10 +243,10 @@ class ExportData:
 class ExportMetrics:
     def __init__(
         self,
-        repository: AnalyticsQueryRepository,
+        ticket_repository: TicketRepository,
         writer_factory: ReportWriterFactory,
     ) -> None:
-        self._repository = repository
+        self._tickets = ticket_repository
         self._writer_factory = writer_factory
 
     async def execute(self, input_dto: MetricsExportInput) -> ExportedFile:
@@ -235,7 +275,11 @@ class ExportMetrics:
         writer = self._writer_factory.create(input_dto.format)
         content = writer.write(rows, columns, "Metricas")
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-        scope_label = "visao-geral" if input_dto.scope == ReportScope.OVERALL else "por-cliente"
+        scope_label = (
+            "visao-geral"
+            if input_dto.scope == ReportScope.OVERALL
+            else "por-cliente"
+        )
         return ExportedFile(
             filename=f"metricas-{scope_label}-{timestamp}.{input_dto.format.value}",
             media_type=_MEDIA_TYPES[input_dto.format],
@@ -247,31 +291,104 @@ class ExportMetrics:
         input_dto: MetricsExportInput,
         metrics: list[MetricCode],
     ) -> list[dict[str, Any]]:
-        dashboard = await self._repository.get_dashboard(
+        snapshot = await self._tickets.get_dashboard_period_snapshot(
             input_dto.filters,
             input_dto.top_topics_limit,
-            1,
         )
-        values = dashboard["metrics"]
         period = self._period(input_dto)
         rows: list[dict[str, Any]] = []
         if MetricCode.TICKET_VOLUME in metrics:
-            rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.TICKET_VOLUME, "Volume de tickets", values["ticket_volume"]["value"], "tickets", period=period))
+            rows.append(
+                self._metric_row(
+                    "overall",
+                    "all",
+                    "Visão geral",
+                    MetricCode.TICKET_VOLUME,
+                    "Volume de tickets",
+                    snapshot.total_tickets,
+                    "tickets",
+                    period=period,
+                )
+            )
         if MetricCode.AVERAGE_RECURRENCE_SECONDS in metrics:
-            recurrence = values["average_recurrence"]
-            rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.AVERAGE_RECURRENCE_SECONDS, "Frequência média", recurrence["average_seconds"], "seconds", sample_size=recurrence["sample_intervals"], period=period))
+            rows.append(
+                self._metric_row(
+                    "overall",
+                    "all",
+                    "Visão geral",
+                    MetricCode.AVERAGE_RECURRENCE_SECONDS,
+                    "Frequência média",
+                    snapshot.average_recurrence_seconds,
+                    "seconds",
+                    sample_size=snapshot.recurrence_sample_intervals,
+                    period=period,
+                )
+            )
         if MetricCode.RESOLUTION_RATE in metrics:
-            resolution = values["resolution_rate"]
-            rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.RESOLUTION_RATE, "Taxa de resolução", resolution["rate"], "ratio", numerator=resolution["resolved"], denominator=resolution["total"], period=period))
+            rows.append(
+                self._metric_row(
+                    "overall",
+                    "all",
+                    "Visão geral",
+                    MetricCode.RESOLUTION_RATE,
+                    "Taxa de resolução",
+                    AnalyticsCalculator.rate(
+                        snapshot.resolved_tickets,
+                        snapshot.total_tickets,
+                    ),
+                    "ratio",
+                    numerator=snapshot.resolved_tickets,
+                    denominator=snapshot.total_tickets,
+                    period=period,
+                )
+            )
         if MetricCode.SATISFACTION_RATE in metrics:
-            satisfaction = values["satisfaction_rate"]
-            rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.SATISFACTION_RATE, "Índice de satisfação", satisfaction["rate"], "ratio", numerator=satisfaction["good"], denominator=satisfaction["rated_total"], sample_size=satisfaction["rated_total"], period=period))
+            rated_total = snapshot.good_ratings + snapshot.bad_ratings
+            rows.append(
+                self._metric_row(
+                    "overall",
+                    "all",
+                    "Visão geral",
+                    MetricCode.SATISFACTION_RATE,
+                    "Índice de satisfação",
+                    AnalyticsCalculator.rate(snapshot.good_ratings, rated_total),
+                    "ratio",
+                    numerator=snapshot.good_ratings,
+                    denominator=rated_total,
+                    sample_size=rated_total,
+                    period=period,
+                )
+            )
         if MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS in metrics:
-            response = values["average_first_response"]
-            rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS, "Tempo médio até a primeira resposta", response["average_seconds"], "seconds", sample_size=response["responded_tickets"], period=period))
+            rows.append(
+                self._metric_row(
+                    "overall",
+                    "all",
+                    "Visão geral",
+                    MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS,
+                    "Tempo médio até a primeira resposta",
+                    snapshot.average_first_response_seconds,
+                    "seconds",
+                    sample_size=snapshot.responded_tickets,
+                    period=period,
+                )
+            )
         if MetricCode.TOP_TOPICS in metrics:
-            for topic in dashboard["charts"]["top_topics"]:
-                rows.append(self._metric_row("overall", "all", "Visão geral", MetricCode.TOP_TOPICS, "Assuntos principais", topic["ticket_count"], "tickets", dimension=topic["tag"], rank=topic["rank"], period=period))
+            for rank, topic in enumerate(snapshot.topic_aggregates, start=1):
+                rows.append(
+                    self._metric_row(
+                        "overall",
+                        "all",
+                        "Visão geral",
+                        MetricCode.TOP_TOPICS,
+                        "Assuntos principais",
+                        topic.ticket_count,
+                        "tickets",
+                        dimension=topic.tag,
+                        rank=rank,
+                        period=period,
+                    )
+                )
         return rows
 
     async def _customer_rows(
@@ -289,25 +406,102 @@ class ExportMetrics:
                 page_size=100,
                 top_topics_limit=input_dto.top_topics_limit,
             )
-            result = await self._repository.list_customer_metrics(page_input)
-            for customer in result["items"]:
-                scope_id = customer["customer_id"]
-                scope_label = f'{customer["requester_name"]} <{customer["requester_email"]}>'
+            result = await self._tickets.page_customer_analytics(page_input)
+            for raw_customer in result.items:
+                customer = AnalyticsCalculator.build_customer_item(raw_customer)
+                scope_id = str(customer.customer_id)
+                scope_label = (
+                    f"{customer.requester_name} <{customer.requester_email}>"
+                )
                 if MetricCode.TICKET_VOLUME in metrics:
-                    rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.TICKET_VOLUME, "Volume de tickets", customer["ticket_volume"], "tickets", period=period))
+                    rows.append(
+                        self._metric_row(
+                            "customer",
+                            scope_id,
+                            scope_label,
+                            MetricCode.TICKET_VOLUME,
+                            "Volume de tickets",
+                            customer.ticket_volume,
+                            "tickets",
+                            period=period,
+                        )
+                    )
                 if MetricCode.AVERAGE_RECURRENCE_SECONDS in metrics:
-                    rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.AVERAGE_RECURRENCE_SECONDS, "Frequência média", customer["average_recurrence_seconds"], "seconds", sample_size=customer["recurrence_sample_intervals"], period=period))
+                    rows.append(
+                        self._metric_row(
+                            "customer",
+                            scope_id,
+                            scope_label,
+                            MetricCode.AVERAGE_RECURRENCE_SECONDS,
+                            "Frequência média",
+                            customer.average_recurrence_seconds,
+                            "seconds",
+                            sample_size=customer.recurrence_sample_intervals,
+                            period=period,
+                        )
+                    )
                 if MetricCode.RESOLUTION_RATE in metrics:
-                    rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.RESOLUTION_RATE, "Taxa de resolução", customer["resolution_rate"], "ratio", numerator=customer["resolved_tickets"], denominator=customer["ticket_volume"], period=period))
+                    rows.append(
+                        self._metric_row(
+                            "customer",
+                            scope_id,
+                            scope_label,
+                            MetricCode.RESOLUTION_RATE,
+                            "Taxa de resolução",
+                            customer.resolution_rate,
+                            "ratio",
+                            numerator=customer.resolved_tickets,
+                            denominator=customer.ticket_volume,
+                            period=period,
+                        )
+                    )
                 if MetricCode.SATISFACTION_RATE in metrics:
-                    rated_total = customer["good_ratings"] + customer["bad_ratings"]
-                    rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.SATISFACTION_RATE, "Índice de satisfação", customer["satisfaction_rate"], "ratio", numerator=customer["good_ratings"], denominator=rated_total, sample_size=rated_total, period=period))
+                    rated_total = customer.good_ratings + customer.bad_ratings
+                    rows.append(
+                        self._metric_row(
+                            "customer",
+                            scope_id,
+                            scope_label,
+                            MetricCode.SATISFACTION_RATE,
+                            "Índice de satisfação",
+                            customer.satisfaction_rate,
+                            "ratio",
+                            numerator=customer.good_ratings,
+                            denominator=rated_total,
+                            sample_size=rated_total,
+                            period=period,
+                        )
+                    )
                 if MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS in metrics:
-                    rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS, "Tempo médio até a primeira resposta", customer["average_first_response_seconds"], "seconds", period=period))
+                    rows.append(
+                        self._metric_row(
+                            "customer",
+                            scope_id,
+                            scope_label,
+                            MetricCode.AVERAGE_FIRST_RESPONSE_SECONDS,
+                            "Tempo médio até a primeira resposta",
+                            customer.average_first_response_seconds,
+                            "seconds",
+                            period=period,
+                        )
+                    )
                 if MetricCode.TOP_TOPICS in metrics:
-                    for rank, topic in enumerate(customer["top_topics"], start=1):
-                        rows.append(self._metric_row("customer", scope_id, scope_label, MetricCode.TOP_TOPICS, "Assuntos principais", topic["ticket_count"], "tickets", dimension=topic["tag"], rank=rank, period=period))
-            if not result["has_next"]:
+                    for rank, topic in enumerate(customer.top_topics, start=1):
+                        rows.append(
+                            self._metric_row(
+                                "customer",
+                                scope_id,
+                                scope_label,
+                                MetricCode.TOP_TOPICS,
+                                "Assuntos principais",
+                                topic.ticket_count,
+                                "tickets",
+                                dimension=topic.tag,
+                                rank=rank,
+                                period=period,
+                            )
+                        )
+            if not result.has_next:
                 break
             page += 1
         return rows
@@ -315,8 +509,12 @@ class ExportMetrics:
     @staticmethod
     def _period(input_dto: MetricsExportInput) -> tuple[str | None, str | None]:
         return (
-            input_dto.filters.from_at.isoformat() if input_dto.filters.from_at else None,
-            input_dto.filters.to_at.isoformat() if input_dto.filters.to_at else None,
+            input_dto.filters.from_at.isoformat()
+            if input_dto.filters.from_at
+            else None,
+            input_dto.filters.to_at.isoformat()
+            if input_dto.filters.to_at
+            else None,
         )
 
     @staticmethod
@@ -352,3 +550,43 @@ class ExportMetrics:
             "period_start": period[0],
             "period_end": period[1],
         }
+
+
+def _serialize_export_record(
+    record: ExportTicketRecord,
+    fields: list[DataExportField],
+) -> dict[str, Any]:
+    rating = None
+    if record.satisfaction_rating is not None:
+        rating = {
+            "score": record.satisfaction_rating.score.lower(),
+            "offered_at": _iso(record.satisfaction_rating.offered_at),
+            "rated_at": _iso(record.satisfaction_rating.rated_at),
+            "comment": record.satisfaction_rating.comment,
+        }
+    complete = {
+        "ticket_id": record.ticket_id,
+        "subject": record.subject,
+        "description": record.description,
+        "status": record.status.lower(),
+        "priority": record.priority.lower(),
+        "requester_id": record.requester_id,
+        "requester_name": record.requester_name,
+        "requester_email": record.requester_email,
+        "assignee_id": record.assignee_id,
+        "assignee_name": record.assignee_name,
+        "created_at": _iso(record.created_at),
+        "updated_at": _iso(record.updated_at),
+        "first_response_at": _iso(record.first_response_at),
+        "tags": record.tags,
+        "satisfaction_rating": rating,
+    }
+    return {field.value: complete[field.value] for field in fields}
+
+
+def _iso(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")

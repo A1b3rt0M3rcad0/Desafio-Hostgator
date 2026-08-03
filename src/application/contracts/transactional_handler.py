@@ -2,8 +2,8 @@ from collections.abc import Awaitable, Callable
 from typing import Protocol, TypeVar
 
 
-InputT = TypeVar("InputT")
-OutputT = TypeVar("OutputT")
+InputT = TypeVar("InputT", contravariant=True)
+OutputT = TypeVar("OutputT", covariant=True)
 
 Handler = Callable[[InputT], Awaitable[OutputT]]
 
