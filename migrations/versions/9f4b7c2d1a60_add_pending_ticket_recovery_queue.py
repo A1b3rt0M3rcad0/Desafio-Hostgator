@@ -67,7 +67,7 @@ def upgrade() -> None:
     op.execute(
         sa.text(
             "UPDATE ingestion_control "
-            "SET cursor_position = 0, "
+            "SET cursor_position = 0, source_version = NULL, "
             "worker_state = CASE WHEN enabled = 1 THEN 'IDLE' ELSE 'DISABLED' END, "
             "last_error = NULL "
             "WHERE id = 1"
