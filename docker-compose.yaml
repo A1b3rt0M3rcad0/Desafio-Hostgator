@@ -5,6 +5,7 @@
 services:
   db:
     image: mysql:8.0
+    restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD in .env}"
       MYSQL_DATABASE: "${MYSQL_DATABASE:?Set MYSQL_DATABASE in .env}"
@@ -35,6 +36,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
+    restart: unless-stopped
     environment:
       MYSQL_URL_CONNECTION_API: "${MYSQL_URL_CONNECTION_API:?Set MYSQL_URL_CONNECTION_API in .env}"
       SQL_ECHO: "${SQL_ECHO:-false}"
