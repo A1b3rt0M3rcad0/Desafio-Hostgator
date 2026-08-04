@@ -48,6 +48,7 @@ class AuthSettings:
     cookie_domain: str | None
     allowed_origins: tuple[str, ...]
     trusted_origins: frozenset[str]
+    registration_enabled: bool
 
 
 load_dotenv()
@@ -92,6 +93,7 @@ AUTH_SETTINGS = AuthSettings(
     cookie_domain=COOKIE_DOMAIN,
     allowed_origins=_allowed_origins,
     trusted_origins=frozenset(_trusted_origins),
+    registration_enabled=_as_bool(os.getenv("AUTH_REGISTRATION_ENABLED"), False),
 )
 
 PASSWORD_HASHER = BcryptPasswordHasher(

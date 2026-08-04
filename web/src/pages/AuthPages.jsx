@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 function AuthPage({ mode }) {
   const isRegister = mode === 'register';
   const { login, register } = useAuth();
-  const registrationEnabled = window.__WEB_CONFIG__?.REGISTRATION_ENABLED !== false;
+  const registrationEnabled = window.__WEB_CONFIG__?.REGISTRATION_ENABLED === true;
   const [form, setForm] = useState({ email: '', password: '', confirmation: '' });
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -27,6 +27,8 @@ function AuthPage({ mode }) {
       setSubmitting(false);
     }
   }
+
+  if (isRegister && !registrationEnabled) return null;
 
   return (
     <div className="auth-page">

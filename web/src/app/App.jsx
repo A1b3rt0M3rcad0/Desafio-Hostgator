@@ -12,6 +12,7 @@ import { ErrorPage } from '../pages/ErrorPages.jsx';
 
 export function App() {
   const { user, loading } = useAuth();
+  const registrationEnabled = window.__WEB_CONFIG__?.REGISTRATION_ENABLED === true;
   const routes = useMemo(() => [
     { path: '/', public: false, component: DashboardPage },
     { path: '/login', public: true, component: LoginPage },
@@ -31,13 +32,15 @@ export function App() {
 
   useEffect(() => {
     if (loading) return;
-    if (route.path === '/') navigate(user ? '/dashboard' : '/login', { replace: true });
+    if (route.path === '/register' && !registrationEnabled) navigate('/login', { replace: true });
+    else if (route.path === '/') navigate(user ? '/dashboard' : '/login', { replace: true });
     else if (!route.public && !user) navigate('/login', { replace: true });
     else if (route.public && user && ['/login', '/register'].includes(route.path)) navigate('/dashboard', { replace: true });
-  }, [loading, route.path, route.public, user]);
+  }, [loading, registrationEnabled, route.path, route.public, user]);
 
   if (loading) return <Spinner label="Verificando sessão" />;
   if (route.path === '*') return <ErrorPage />;
+  if (route.path === '/register' && !registrationEnabled) return null;
   if ((!route.public && !user) || (route.public && user && ['/login', '/register'].includes(route.path))) return null;
 
   const Component = route.component;
