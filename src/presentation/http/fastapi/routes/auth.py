@@ -1,6 +1,6 @@
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi import Request as FastAPIRequest
 from starlette.responses import Response as FastAPIResponse
 
@@ -13,6 +13,7 @@ from src.bootstrap.composers.auth import (
     refresh_auth_session_composer,
 )
 from src.bootstrap.composers.users import add_user_composer
+from src.bootstrap.security import AUTH_SETTINGS
 from src.presentation.http.fastapi.adapters import adapt_request, adapt_response
 from src.presentation.http.fastapi.security import (
     require_anonymous_csrf,
@@ -24,13 +25,27 @@ from src.presentation.http.fastapi.security import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def require_registration_enabled() -> None:
+    if not AUTH_SETTINGS.registration_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="O cadastro público está desabilitado.",
+        )
+
+
 @router.get("/csrf")
 async def issue_csrf(request: FastAPIRequest) -> FastAPIResponse:
     response = await issue_csrf_token_controller().handle(adapt_request(request))
     return adapt_response(response)
 
 
-@router.post("/register", dependencies=[Depends(require_anonymous_csrf)])
+@router.post(
+    "/register",
+    dependencies=[
+        Depends(require_registration_enabled),
+        Depends(require_anonymous_csrf),
+    ],
+)
 async def register(
     request: FastAPIRequest,
     body: dict[str, Any] = Body(...),
