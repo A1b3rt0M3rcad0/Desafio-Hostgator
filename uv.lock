@@ -170,7 +170,7 @@ wheels = [
 ]
 
 [[package]]
-name = "desafio-hostinger"
+name = "desafio-hostgator"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
