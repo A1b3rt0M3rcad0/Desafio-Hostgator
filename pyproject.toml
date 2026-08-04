@@ -1,7 +1,7 @@
 [project]
-name = "desafio-hostinger"
+name = "desafio-hostgator"
 version = "0.1.0"
-description = "Add your description here"
+description = "Aplicação web para gestão e análise de clientes e tickets de suporte."
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
